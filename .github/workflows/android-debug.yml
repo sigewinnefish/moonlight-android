@@ -1,0 +1,36 @@
+name: Android Debug
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;29.0.14206865'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Touch state regression tests
+        run: bash tests/native-touch/run.sh
+      - name: Build APK and run lint
+        run: bash gradlew --no-daemon --max-workers=4 :app:assembleNonRootDebug :app:lintNonRootDebug
+      - name: Upload Debug APK and lint report
+        uses: actions/upload-artifact@v4
+        with:
+          name: moonlight-native-multitouch-debug
+          path: |
+            app/build/outputs/apk/nonRoot/debug/*.apk
+            app/build/reports/lint-results-nonRootDebug.*
+          if-no-files-found: error
