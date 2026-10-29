@@ -1,5 +1,6 @@
 package com.limelight.binding.video;
 
 public interface PerfOverlayListener {
-    void onPerfUpdate(final String text);
+    default int getPerfRefreshMs() { return 1000; }
+    void onPerfUpdate(final PerfSample sample);
 }

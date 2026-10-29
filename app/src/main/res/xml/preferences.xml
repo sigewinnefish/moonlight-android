@@ -213,6 +213,11 @@
     <PreferenceCategory android:title="@string/category_ui_settings"
         android:key="category_ui_settings">
         <CheckBoxPreference
+            android:key="checkbox_background_streaming"
+            android:title="@string/title_background_streaming"
+            android:summary="@string/summary_background_streaming"
+            android:defaultValue="true" />
+        <CheckBoxPreference
             android:key="checkbox_enable_pip"
             android:title="@string/title_checkbox_enable_pip"
             android:summary="@string/summary_checkbox_enable_pip"

@@ -305,4 +305,182 @@
     <string name="analogscroll_left">Left analog stick</string>
     <string name="title_native_multitouch">Native Multi-Touch</string>
     <string name="summary_native_multitouch">Send independent finger contacts to supported Sunshine hosts. Overrides trackpad mode and disables the three-finger keyboard gesture. Unsupported hosts use the existing touch mode.</string>
+    <string name="diag_header">STREAM DIAGNOSTICS · configurable live trends</string>
+    <string name="diag_network_unknown">Network: unknown / permission limited</string>
+    <string name="diag_waiting">Waiting for video statistics…</string>
+    <string name="diag_video_extra">Video payload: %1$.1f Mbps | arrival gap peak: %2$.1f ms\nClient pipeline avg: %3$.1f ms (not input latency)</string>
+    <string name="diag_input">Touch events/s: %1$d | contacts: %2$d\nDispatch age P95/peak: %3$.1f / %4$.1f ms</string>
+    <string name="diag_submit">Native submits/s: %1$d | P95/peak: %2$.2f / %3$.2f ms\nSubmit errors: %4$d | unsupported: %5$d (this interval)</string>
+    <string name="diag_freshness">Video stats age: %1$d ms | UI tick delay: %2$d ms</string>
+    <string name="diag_limits">NaN = no sample; -1 = waiting. Submit ≠ host ACK.\nWi-Fi link rate ≠ throughput; RTT ≠ touch-to-display latency.</string>
+    <string name="diag_stale">VIDEO STATS STALE / WAITING</string>
+    <string name="diag_fold">Hide</string>
+    <string name="diag_unfold">Show</string>
+    <string name="diag_open_dashboard">Dashboard</string>
+    <string name="diag_settings">Settings</string>
+    <string name="diag_close">Close</string>
+    <string name="diag_pause">Freeze</string>
+    <string name="diag_resume">Resume</string>
+    <string name="diag_reset">Clear history</string>
+    <string name="diag_paused">Frozen</string>
+    <string name="diag_now">Latest</string>
+    <string name="diag_history_setting">History window</string>
+    <string name="diag_refresh_setting">Refresh / short-window sample interval</string>
+    <string name="diag_compact_setting">Compact HUD (full stats remain in dashboard)</string>
+    <string name="diag_opacity_setting">HUD background opacity (30–100%)</string>
+    <string name="diag_chart_selection">Charts shown in dashboard</string>
+    <string name="diag_defaults">Defaults</string>
+    <string name="diag_apply">Apply</string>
+    <string name="diag_hud_summary">RTT %1$s ms · Render %2$s FPS\nTouch P95/peak %3$s / %4$s ms\nSubmit peak %5$s ms · Errors %6$d</string>
+    <string-array name="diag_chart_names">
+        <item>Network RTT and variation</item>
+        <item>Video frame arrival interval</item>
+        <item>Touch dispatch age</item>
+        <item>Native touch submission</item>
+        <item>Receive / render frame rate</item>
+        <item>Decode / client / host processing</item>
+        <item>Video payload bitrate</item>
+        <item>Video frame loss</item>
+        <item>UI sampling lateness</item>
+        <item>Contacts and submit errors</item>
+        <item>MOVE rates by stage</item>
+        <item>Touch queue wait / oldest age</item>
+        <item>Pending touch handoffs</item>
+        <item>Control transport call duration</item>
+        <item>RTP queue-entry bitrate</item>
+        <item>RTP input packet rate</item>
+        <item>RTP delivery gap peak</item>
+        <item>Video late / duplicate / sequence jump</item>
+        <item>Video FEC repair / deficits / failed blocks</item>
+        <item>Audio FEC recovered / failed</item>
+        <item>Audio late / invalid packets</item>
+        <item>Control UDP payload throughput</item>
+        <item>Control reliable loss estimate</item>
+        <item>Control reliable bytes in flight</item>
+        <item>Control UDP datagram rate</item>
+        <item>Time since last RTP delivery</item>
+        <item>Audio data / FEC packet rate</item>
+        <item>Wi-Fi RSSI (~5s sampling)</item>
+        <item>Wi-Fi negotiated rate (not throughput)</item>
+        <item>Presentation frame time (per frame)</item>
+        <item>Presentation interval P95 / P99 / peak</item>
+        <item>Display submission interval</item>
+        <item>Decoded-to-release / release-to-present</item>
+        <item>FPS from presentation timestamps</item>
+        <item>Slow / severe frame intervals</item>
+        <item>Slow-interval excess time share</item>
+        <item>Presentation / callback idle age</item>
+        <item>Rendered callback delivery delay</item>
+        <item>Presentation callback tracking coverage</item>
+    </string-array>
+    <string-array name="diag_series_names">
+        <item>RTT</item>
+        <item>Variation</item>
+        <item>Frame gap</item>
+        <item>P95</item>
+        <item>Peak</item>
+        <item>P95</item>
+        <item>Peak</item>
+        <item>Receive</item>
+        <item>Render</item>
+        <item>Decode</item>
+        <item>Client</item>
+        <item>Payload</item>
+        <item>Frame loss</item>
+        <item>Host</item>
+        <item>Errors</item>
+        <item>UI delay</item>
+        <item>Contacts</item>
+        <item>Android</item>
+        <item>Native request</item>
+        <item>Control handoff</item>
+        <item>Wait peak</item>
+        <item>Oldest</item>
+        <item>Pending</item>
+        <item>Call peak</item>
+        <item>Cancels</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Late incl. dup</item>
+        <item>Dup (1024 window)</item>
+        <item>Repaired pkt</item>
+        <item>Failed block</item>
+        <item>Missing data</item>
+        <item>Repaired pkt</item>
+        <item>Failed event</item>
+        <item>Late</item>
+        <item>Invalid</item>
+        <item>Invalid FEC</item>
+        <item>TX</item>
+        <item>RX</item>
+        <item>Reliable loss</item>
+        <item>In flight</item>
+        <item>TX</item>
+        <item>RX</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Data</item>
+        <item>FEC</item>
+        <item>Jump hints</item>
+        <item>RSSI</item>
+        <item>Link rate</item>
+        <item>Per-frame interval</item>
+        <item>Target budget</item>
+        <item>P95</item>
+        <item>P99</item>
+        <item>Peak</item>
+        <item>P95</item>
+        <item>Peak</item>
+        <item>Decode→release P95</item>
+        <item>Release→present P95</item>
+        <item>Timestamp FPS</item>
+        <item>Slow (&gt;1.5×)</item>
+        <item>Severe (&gt;3×, &gt;50ms)</item>
+        <item>Excess share</item>
+        <item>Presentation age</item>
+        <item>Callback age</item>
+        <item>Delivery peak</item>
+        <item>Unmatched releases</item>
+        <item>Tracking gaps</item>
+    </string-array>
+    <string name="diag_unit_count">count</string>
+    <string name="diag_touch_path">MOVE/s Android/native request/control handoff: %1$.0f / %2$.0f / %3$.0f\nPending: %4$d | oldest: %5$.1f ms\nWait/control-call peak: %6$.1f / %7$.1f ms\nControl/request errors: %8$d / %9$d | trace overflow: %10$d | cancels: %11$d</string>
+    <string name="diag_touch_trace_unknown">Touch handoff trace unavailable/overflow: queue diagnosis is inconclusive.</string>
+    <string name="diag_network_metrics">RTP video/audio: %1$.2f / %2$.2f Mbps | %3$.0f / %4$.0f pkt/s\nDelivery gap peaks: %5$.2f / %6$.2f ms\nVideo FEC repaired/failed/missing: %7$.1f pkt / %8$.1f block / %9$.1f pkt per s\nAudio repaired/failed/late: %10$.1f / %11$.1f / %12$.1f per s\nControl TX/RX: %13$.3f / %14$.3f Mbps\nReliable loss estimate: %15$.2f%% | in flight: %16$.0f B\nControl metric age: %17$.0f ms</string>
+    <string name="diag_network_limits">RTP ingress excludes rejected-before-queue packets and wire headers. Sequence jumps are not final packet loss. Control statistics are aggregate, not touch-channel ACKs.</string>
+    <string name="diag_drag">Drag panel</string>
+    <string name="diag_drag_title">⠿  Live diagnostics · drag here</string>
+    <string name="diag_resize">Drag to resize  ↘</string>
+    <string name="diag_detail_text">Details</string>
+    <string name="diag_columns">Chart grid columns</string>
+    <string name="diag_floating_help">Drag the title to move; drag the bottom edge to resize. Charts reflow with width.</string>
+    <string-array name="diag_column_options">
+        <item>Auto</item>
+        <item>1 column</item>
+        <item>2 columns</item>
+        <item>3 columns</item>
+        <item>4 columns</item>
+    </string-array>
+    <string name="diag_hud_space_limited">Limited space · open Dashboard for all data\n%1$s</string>
+    <string name="diag_passthrough">Pass through</string>
+    <string name="diag_cancel_passthrough">Cancel pass</string>
+    <string name="diag_panel_opacity">Dashboard opacity (30–100%)</string>
+    <string name="diag_no_charts">No charts selected. Enable charts in Settings.</string>
+    <string name="diag_opacity_value">HUD background opacity: %1$d%%</string>
+    <string name="diag_panel_opacity_value">Dashboard opacity: %1$d%%</string>
+    <string name="diag_frame_summary">Presentation P95/P99/peak: %1$s / %2$s / %3$s ms | budget: %4$s ms</string>
+    <string name="diag_frame_unavailable">Presentation callback unavailable: only submission/pacing timings can be measured.</string>
+    <string name="diag_frame_limits">Frame Time uses MediaCodec presentation timestamps, not GPU execution or physical scanout. Slow: &gt;1.5× budget; severe: &gt;3× and &gt;50 ms. Excess share covers completed slow intervals. Missing/batched callbacks affect coverage; pending callbacks are not confirmed dropped frames. Percentiles cover the sampling interval (up to the latest 2048 events).</string>
+    <string name="title_background_streaming">Continue streaming in background</string>
+    <string name="summary_background_streaming">Keep the connection, audio and diagnostics running when switching apps or locking the screen. Uses a persistent playback notification and more battery. Requires Android 8.0+; disabling restores disconnect-on-leave.</string>
+    <string name="background_stream_channel">Active stream</string>
+    <string name="background_stream_title">Moonlight stream is running</string>
+    <string name="background_stream_notification">Connection and audio continue. Tap to return.</string>
+    <string name="background_stream_disconnect">Disconnect</string>
+    <string name="background_stream_unavailable">Background streaming is unavailable on this device. The stream will disconnect when hidden.</string>
+    <string name="diag_background_stream">Background receive/decode continues; frames are discarded without display. Screen presentation timings are unavailable.</string>
 </resources>

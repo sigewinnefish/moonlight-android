@@ -102,6 +102,13 @@ public class VirtualController {
         return handler;
     }
 
+    public void cancelInput() {
+        inputContext.inputMap = 0; inputContext.leftTrigger = inputContext.rightTrigger = 0;
+        inputContext.leftStickX = inputContext.leftStickY = inputContext.rightStickX = inputContext.rightStickY = 0;
+        handler.removeCallbacks(delayedRetransmitRunnable);
+        sendControllerInputContextInternal();
+    }
+
     public void hide() {
         for (VirtualControllerElement element : elements) {
             element.setVisibility(View.INVISIBLE);

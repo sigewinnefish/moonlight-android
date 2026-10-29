@@ -286,4 +286,182 @@
     <string name="analogscroll_none">默认 (两个摇杆都控制鼠标)</string>
     <string name="title_native_multitouch">原生多点触控</string>
     <string name="summary_native_multitouch">向支持的 Sunshine 主机发送独立触点。优先于触控板模式，禁用三指键盘手势。不支持的主机使用原有触控模式。</string>
+    <string name="diag_header">串流诊断 · 可配置实时趋势</string>
+    <string name="diag_network_unknown">网络：未知 / 权限受限</string>
+    <string name="diag_waiting">等待视频统计…</string>
+    <string name="diag_video_extra">视频载荷：%1$.1f Mbps | 帧到达间隔峰值：%2$.1f ms\n客户端流水线均值：%3$.1f ms（非输入延迟）</string>
+    <string name="diag_input">触摸事件/秒：%1$d | 当前触点：%2$d\n事件等待 P95/峰值：%3$.1f / %4$.1f ms</string>
+    <string name="diag_submit">原生提交/秒：%1$d | P95/峰值：%2$.2f / %3$.2f ms\n提交失败：%4$d | 不支持：%5$d（本周期）</string>
+    <string name="diag_freshness">视频统计距今：%1$d ms | UI采样迟到：%2$d ms</string>
+    <string name="diag_limits">NaN＝无样本；-1＝等待。提交≠主机确认。\nWi-Fi链路速率≠吞吐量；RTT≠触控到画面延迟。</string>
+    <string name="diag_stale">视频统计已过期 / 等待更新</string>
+    <string name="diag_fold">收起</string>
+    <string name="diag_unfold">显示</string>
+    <string name="diag_open_dashboard">展开面板</string>
+    <string name="diag_settings">设置</string>
+    <string name="diag_close">关闭</string>
+    <string name="diag_pause">冻结图表</string>
+    <string name="diag_resume">继续采样</string>
+    <string name="diag_reset">清空历史</string>
+    <string name="diag_paused">已冻结</string>
+    <string name="diag_now">最新</string>
+    <string name="diag_history_setting">历史时长</string>
+    <string name="diag_refresh_setting">刷新与短窗口采样周期</string>
+    <string name="diag_compact_setting">简洁悬浮窗（完整数据保留在详细面板）</string>
+    <string name="diag_opacity_setting">小面板背景不透明度（30–100%）</string>
+    <string name="diag_chart_selection">详细面板显示的图表</string>
+    <string name="diag_defaults">恢复默认</string>
+    <string name="diag_apply">应用</string>
+    <string name="diag_hud_summary">RTT %1$s ms · 渲染 %2$s FPS\n触摸等待P95/峰值 %3$s / %4$s ms\n提交峰值 %5$s ms · 失败 %6$d</string>
+    <string-array name="diag_chart_names">
+        <item>网络RTT与波动</item>
+        <item>视频帧到达间隔</item>
+        <item>触摸事件等待</item>
+        <item>原生触控提交</item>
+        <item>接收与渲染帧率</item>
+        <item>解码、客户端与主机处理</item>
+        <item>视频载荷码率</item>
+        <item>视频丢帧比例</item>
+        <item>UI采样迟到</item>
+        <item>触点数与提交失败</item>
+        <item>MOVE分阶段速率</item>
+        <item>触控队列等待与最老年龄</item>
+        <item>待移交触控数量</item>
+        <item>控制传输调用耗时</item>
+        <item>RTP队列入口码率</item>
+        <item>RTP输入包速率</item>
+        <item>RTP交付间隔峰值</item>
+        <item>视频后到、重复与序号前跳</item>
+        <item>视频FEC恢复、缺口与失败块</item>
+        <item>音频FEC恢复与失败</item>
+        <item>音频后到与无效包</item>
+        <item>控制连接UDP载荷吞吐量</item>
+        <item>控制可靠包丢失估计</item>
+        <item>控制连接待确认字节</item>
+        <item>控制连接UDP包速率</item>
+        <item>距上次RTP交付时间</item>
+        <item>音频数据与FEC包速率</item>
+        <item>Wi-Fi信号（约5秒采样）</item>
+        <item>Wi-Fi协商速率（非吞吐量）</item>
+        <item>逐帧呈现间隔（Frame Time）</item>
+        <item>呈现间隔 P95 / P99 / 峰值</item>
+        <item>显示提交间隔</item>
+        <item>解码后等待 / 提交至呈现</item>
+        <item>呈现时间戳估算帧率</item>
+        <item>慢帧 / 严重卡帧间隔</item>
+        <item>慢帧超预算时间占比</item>
+        <item>呈现 / 回调距今</item>
+        <item>呈现回调投递延迟</item>
+        <item>呈现回调跟踪覆盖</item>
+    </string-array>
+    <string-array name="diag_series_names">
+        <item>RTT</item>
+        <item>波动</item>
+        <item>帧间隔</item>
+        <item>P95</item>
+        <item>峰值</item>
+        <item>P95</item>
+        <item>峰值</item>
+        <item>接收</item>
+        <item>渲染</item>
+        <item>解码</item>
+        <item>客户端</item>
+        <item>载荷</item>
+        <item>丢帧</item>
+        <item>主机</item>
+        <item>失败</item>
+        <item>UI迟到</item>
+        <item>触点</item>
+        <item>Android</item>
+        <item>原生请求</item>
+        <item>控制移交</item>
+        <item>等待峰值</item>
+        <item>最老等待</item>
+        <item>待移交</item>
+        <item>调用峰值</item>
+        <item>取消</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>后到含重复</item>
+        <item>重复(1024窗)</item>
+        <item>恢复包</item>
+        <item>失败块</item>
+        <item>缺口包</item>
+        <item>恢复包</item>
+        <item>失败事件</item>
+        <item>后到</item>
+        <item>无效包</item>
+        <item>无效FEC</item>
+        <item>发送</item>
+        <item>接收</item>
+        <item>可靠包估计</item>
+        <item>待确认</item>
+        <item>发送</item>
+        <item>接收</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>数据包</item>
+        <item>FEC包</item>
+        <item>前跳缺口</item>
+        <item>RSSI</item>
+        <item>协商速率</item>
+        <item>逐帧间隔</item>
+        <item>目标帧预算</item>
+        <item>P95</item>
+        <item>P99</item>
+        <item>峰值</item>
+        <item>P95</item>
+        <item>峰值</item>
+        <item>解码→提交P95</item>
+        <item>提交→呈现P95</item>
+        <item>时间戳FPS</item>
+        <item>慢帧(&gt;1.5倍)</item>
+        <item>严重(&gt;3倍且&gt;50ms)</item>
+        <item>超预算占比</item>
+        <item>距呈现</item>
+        <item>距回调</item>
+        <item>投递峰值</item>
+        <item>未匹配回报</item>
+        <item>跟踪缺口</item>
+    </string-array>
+    <string name="diag_unit_count">个/次</string>
+    <string name="diag_touch_path">MOVE/秒 Android/原生请求/控制移交：%1$.0f / %2$.0f / %3$.0f\n待移交：%4$d | 最老等待：%5$.1f ms\n等待/控制调用峰值：%6$.1f / %7$.1f ms\n控制/请求失败：%8$d / %9$d | 跟踪溢出：%10$d | 触控取消：%11$d</string>
+    <string name="diag_touch_trace_unknown">触控跟踪不可用或溢出：队列数据无法用于判定卡顿。</string>
+    <string name="diag_network_metrics">RTP视频/音频：%1$.2f / %2$.2f Mbps | %3$.0f / %4$.0f 包/秒\nRTP交付间隔峰值：%5$.2f / %6$.2f ms\n视频FEC恢复/失败/缺口：%7$.1f 包 / %8$.1f 块 / %9$.1f 包每秒\n音频恢复/失败/后到：%10$.1f / %11$.1f / %12$.1f 每秒\n控制发送/接收：%13$.3f / %14$.3f Mbps\n可靠包丢失估计：%15$.2f%% | 待确认：%16$.0f B\n控制统计距今：%17$.0f ms</string>
+    <string name="diag_network_limits">RTP输入不含入队前拒绝的包及链路头；序号前跳不等于最终丢包。控制数据为整体连接统计，非触控通道确认。</string>
+    <string name="diag_drag">拖动面板</string>
+    <string name="diag_drag_title">⠿  实时诊断 · 拖动标题移动</string>
+    <string name="diag_resize">拖动此处调整大小  ↘</string>
+    <string name="diag_detail_text">文字数据</string>
+    <string name="diag_columns">图表网格列数</string>
+    <string name="diag_floating_help">拖动标题可移动，拖动底部可缩放；图表随窗口宽度自动排版。</string>
+    <string-array name="diag_column_options">
+        <item>自动</item>
+        <item>1列</item>
+        <item>2列</item>
+        <item>3列</item>
+        <item>4列</item>
+    </string-array>
+    <string name="diag_hud_space_limited">空间不足，完整数据请展开面板查看\n%1$s</string>
+    <string name="diag_passthrough">透传</string>
+    <string name="diag_cancel_passthrough">取消透传</string>
+    <string name="diag_panel_opacity">详细窗口不透明度（30–100%）</string>
+    <string name="diag_no_charts">未选择图表，请在设置中启用需要的图表。</string>
+    <string name="diag_opacity_value">小面板背景不透明度：%1$d%%</string>
+    <string name="diag_panel_opacity_value">详细窗口不透明度：%1$d%%</string>
+    <string name="diag_frame_summary">呈现间隔P95/P99/峰值：%1$s / %2$s / %3$s ms | 目标预算：%4$s ms</string>
+    <string name="diag_frame_unavailable">呈现回调不可用：只能统计显示提交与帧节奏等待。</string>
+    <string name="diag_frame_limits">Frame Time来自MediaCodec呈现时间戳，非GPU执行时间或物理屏幕扫描。慢帧：&gt;1.5倍预算；严重：&gt;3倍且&gt;50ms。超预算占比仅统计已完成慢间隔。回调缺失/批量投递影响覆盖率，待回报不代表确认丢帧。分位数统计当前采样窗口（至多最近2048次）。</string>
+    <string name="title_background_streaming">后台继续串流</string>
+    <string name="summary_background_streaming">切换应用或锁屏后继续连接、声音和诊断统计。会显示常驻播放通知，并增加耗电。需要Android 8.0及以上；关闭后恢复离开即断开的行为。</string>
+    <string name="background_stream_channel">正在串流</string>
+    <string name="background_stream_title">Moonlight串流正在运行</string>
+    <string name="background_stream_notification">连接与声音继续，点按返回串流。</string>
+    <string name="background_stream_disconnect">断开连接</string>
+    <string name="background_stream_unavailable">此设备无法开启后台串流，应用隐藏后将断开连接。</string>
+    <string name="diag_background_stream">后台接收与解码继续，视频帧不提交显示；屏幕呈现时序不可用。</string>
 </resources>

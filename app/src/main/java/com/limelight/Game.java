@@ -16,8 +16,13 @@ import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
+import com.limelight.diagnostics.FrameTimingWindow;
+import com.limelight.diagnostics.DiagnosticCharts;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
+import com.limelight.binding.video.PerfSample;
+import com.limelight.diagnostics.LatencyWindow;
+import com.limelight.ui.PerformanceOverlayView;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -127,6 +132,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean autoEnterPip = false;
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
+    private boolean backgroundStreamingReady;
+    private boolean backgroundServiceRequested;
+    private boolean streamUiStopped;
+    private boolean backgroundGrabbedInput;
+    private boolean nativeStopIssued;
     private int suppressPipRefCount = 0;
     private String pcName;
     private String appName;
@@ -148,7 +158,31 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean isHidingOverlays;
     private TextView notificationOverlayView;
     private int requestedNotificationOverlayVisibility = View.GONE;
-    private TextView performanceOverlayView;
+    private PerformanceOverlayView performanceOverlayView;
+    private volatile PerfSample diagnosticVideoSample;
+    // Motion events and diagnostics ticks both run on the UI thread.
+    private final LatencyWindow diagnosticInputAge = new LatencyWindow();
+    private final LatencyWindow diagnosticSubmit = new LatencyWindow();
+    private int diagnosticSendErrors;
+    private int diagnosticUnsupported;
+    private int diagnosticContacts;
+    private int diagnosticMoveEvents;
+    private int diagnosticTouchCancels;
+    private long diagnosticLastTickMs;
+    private long diagnosticExpectedTickMs;
+    private volatile String diagnosticNetworkText;
+    private volatile float diagnosticWifiRssi = Float.NaN, diagnosticWifiLink = Float.NaN;
+    private java.util.concurrent.ScheduledExecutorService diagnosticNetworkPoller;
+    private final Runnable diagnosticTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!connected || !prefConfig.enablePerfOverlay) return;
+            updateDiagnostics();
+            int delay = performanceOverlayView.getRefreshMs();
+            diagnosticExpectedTickMs = android.os.SystemClock.uptimeMillis() + delay;
+            performanceOverlayView.postDelayed(this, delay);
+        }
+    };
 
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
@@ -274,6 +308,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         notificationOverlayView = findViewById(R.id.notificationOverlay);
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
+        performanceOverlayView.setInputModeListener(() -> cancelNativeTouches());
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
 
@@ -490,8 +525,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         nativeTouchState = new NativeTouchState(
-                (type, id, x, y, pressure) -> conn.sendTouchEvent(type, id, x, y, pressure,
-                        0, 0, MoonBridge.LI_ROT_UNKNOWN));
+                (type, id, x, y, pressure) -> sendDiagnosticTouch(type, id, x, y, pressure));
         // A changed video rectangle invalidates coordinates of all existing contacts.
         streamView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (l != ol || t != ot || r != or || b != ob) {
@@ -671,7 +705,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private void updatePipAutoEnter() {
-        if (!prefConfig.enablePip) {
+        if (!prefConfig.enablePip || isFinishing() || isDestroyed()) {
             return;
         }
 
@@ -764,6 +798,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // With Android native pointer capture, capture is lost when focus is lost,
         // so it must be requested again when focus is regained.
+        if (hasFocus && backgroundGrabbedInput && connected && !streamUiStopped) {
+            backgroundGrabbedInput = false; setInputGrabState(true);
+        }
         inputCaptureProvider.onWindowFocusChanged(hasFocus);
     }
 
@@ -1050,6 +1087,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onDestroy() {
+        if (connecting || connected) stopConnection();
+        StreamPlaybackService.stop(this);
+        stopDiagnosticNetworkPoller();
+        if (performanceOverlayView != null) performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
         super.onDestroy();
 
@@ -1077,8 +1118,42 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         inputCaptureProvider.destroy();
     }
 
+    private boolean keepStreamInBackground() {
+        return prefConfig.backgroundStreaming && backgroundStreamingReady && backgroundServiceRequested &&
+                connected && !isFinishing();
+    }
+
+    public void stopBackgroundStream() {
+        stopConnection(); finish();
+    }
+
+    public void backgroundStreamUnavailable() {
+        backgroundServiceRequested = false;
+        Toast.makeText(this, R.string.background_stream_unavailable, Toast.LENGTH_LONG).show();
+        if (streamUiStopped || !surfaceCreated) stopBackgroundStream();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart(); streamUiStopped = false;
+        if (connected) {
+            decoderRenderer.notifyVideoForeground();
+            if (surfaceCreated && streamView.getHolder().getSurface().isValid() && decoderRenderer.isBackgroundOutput()) {
+                if (!decoderRenderer.useForegroundSurface(streamView.getHolder().getSurface())) stopBackgroundStream();
+            }
+            controllerHandler.enableSensors();
+            if (virtualController != null && !isHidingOverlays) virtualController.show();
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (backgroundGrabbedInput && hasWindowFocus()) {
+                backgroundGrabbedInput = false; setInputGrabState(true);
+            }
+            hideSystemUi(50);
+        }
+    }
+
     @Override
     protected void onPause() {
+        if (performanceOverlayView != null) performanceOverlayView.cancelPassThrough();
         cancelNativeTouches();
         if (isFinishing()) {
             // Stop any further input device notifications before we lose focus (and pointer capture)
@@ -1102,6 +1177,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         if (virtualController != null) {
             virtualController.hide();
+        }
+
+        if (keepStreamInBackground() && decoderRenderer.useBackgroundSurface()) {
+            streamUiStopped = true;
+            backgroundGrabbedInput = grabbedInput;
+            setInputGrabState(false);
+            if (touchContextMap != null) {
+                for (TouchContext touch : touchContextMap) if (touch != null) touch.cancelTouch();
+            }
+            if (virtualController != null) virtualController.cancelInput();
+            conn.releaseKeyboardAndMouse();
+            controllerHandler.disableSensors();
+            decoderRenderer.notifyVideoBackground();
+            performanceOverlayView.closePanelsForBackground();
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            return;
         }
 
         if (conn != null) {
@@ -1338,6 +1429,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private byte getModifierState() {
         return (byte) modifierFlags;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onBackPressed() {
+        if (performanceOverlayView != null && performanceOverlayView.cancelPassThrough()) return;
+        super.onBackPressed();
     }
 
     @Override
@@ -1764,7 +1862,23 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     }
 
+    private int sendDiagnosticTouch(byte type, int id, float x, float y, float pressure) {
+        if (!prefConfig.enablePerfOverlay) {
+            return conn.sendTouchEvent(type, id, x, y, pressure, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
+        }
+        if (type == MoonBridge.LI_TOUCH_EVENT_CANCEL || type == MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL) {
+            diagnosticTouchCancels++;
+        }
+        long start = System.nanoTime();
+        int result = conn.sendTouchEvent(type, id, x, y, pressure, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
+        diagnosticSubmit.record((System.nanoTime() - start) / 1000000f);
+        if (result == MoonBridge.LI_ERR_UNSUPPORTED) diagnosticUnsupported++;
+        else if (result != 0) diagnosticSendErrors++;
+        return result;
+    }
+
     private void cancelNativeTouches() {
+        diagnosticContacts = 0;
         if (nativeTouchState != null) {
             nativeTouchState.cancel();
         }
@@ -2057,6 +2171,23 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     return true;
                 }
 
+                if (prefConfig.enablePerfOverlay) {
+                    if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                        diagnosticMoveEvents += event.getPointerCount();
+                    }
+                    diagnosticInputAge.record(Math.max(0, android.os.SystemClock.uptimeMillis() - event.getEventTime()));
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL:
+                            diagnosticContacts = 0;
+                            break;
+                        case MotionEvent.ACTION_POINTER_UP:
+                            diagnosticContacts = event.getPointerCount() - 1;
+                            break;
+                        default:
+                            diagnosticContacts = event.getPointerCount();
+                    }
+                }
                 // Native mode takes precedence over trackpad mode only for supported hosts.
                 // Consume the whole gesture before the three-finger keyboard/mouse handlers.
                 if (prefConfig.nativeMultiTouch && trySendTouchEvent(view, event)) {
@@ -2279,9 +2410,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     public void stageComplete(String stage) {
     }
 
+    private void stopDiagnosticNetworkPoller() {
+        if (diagnosticNetworkPoller != null) {
+            diagnosticNetworkPoller.shutdownNow();
+            diagnosticNetworkPoller = null;
+        }
+    }
+
     private void stopConnection() {
+        backgroundServiceRequested = false;
+        StreamPlaybackService.stop(this);
+        MoonBridge.setTouchDiagnosticsEnabled(false);
+        stopDiagnosticNetworkPoller();
+        performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
-        if (connecting || connected) {
+        if ((connecting || connected) && !nativeStopIssued) {
+            nativeStopIssued = true;
             connecting = connected = false;
             updatePipAutoEnter();
 
@@ -2467,8 +2611,28 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     spinner = null;
                 }
 
+                if (nativeStopIssued) return;
+                if (isFinishing() || isDestroyed()) {
+                    connected = true; stopConnection(); return;
+                }
                 connected = true;
                 connecting = false;
+                if (prefConfig.backgroundStreaming) {
+                    backgroundStreamingReady = decoderRenderer.prepareBackgroundStreaming();
+                    if (backgroundStreamingReady) backgroundServiceRequested = StreamPlaybackService.start(Game.this);
+                    if (!backgroundStreamingReady || !backgroundServiceRequested) backgroundStreamUnavailable();
+                }
+                if (prefConfig.enablePerfOverlay) {
+                    MoonBridge.setTouchDiagnosticsEnabled(true);
+                    // Wi-Fi service calls can block: never poll them on the input/UI thread.
+                    diagnosticNetworkPoller = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+                    diagnosticNetworkPoller.scheduleWithFixedDelay(() -> {
+                        diagnosticNetworkText = diagnosticNetwork();
+                    }, 0, 5, java.util.concurrent.TimeUnit.SECONDS);
+                    diagnosticLastTickMs = android.os.SystemClock.uptimeMillis();
+                    diagnosticExpectedTickMs = diagnosticLastTickMs;
+                    performanceOverlayView.post(diagnosticTick);
+                }
                 updatePipAutoEnter();
 
                 // Hide the mouse cursor now after a short delay.
@@ -2480,7 +2644,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 h.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        setInputGrabState(true);
+                        if (connected && !streamUiStopped && hasWindowFocus()) setInputGrabState(true);
                     }
                 }, 500);
 
@@ -2574,6 +2738,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
                     decoderRenderer, Game.this);
         }
+        else if (connected && decoderRenderer.isBackgroundOutput()) {
+            if (!decoderRenderer.useForegroundSurface(holder.getSurface())) stopBackgroundStream();
+        }
     }
 
     @Override
@@ -2623,7 +2790,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             throw new IllegalStateException("Surface destroyed before creation!");
         }
 
+        surfaceCreated = false;
         if (attemptedConnection) {
+            if (keepStreamInBackground() && decoderRenderer.useBackgroundSurface()) return;
             // Let the decoder know immediately that the surface is gone
             decoderRenderer.prepareForStop();
 
@@ -2717,13 +2886,129 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     @Override
-    public void onPerfUpdate(final String text) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                performanceOverlayView.setText(text);
+    public int getPerfRefreshMs() {
+        return performanceOverlayView.getRefreshMs();
+    }
+
+    @Override
+    public void onPerfUpdate(final PerfSample sample) {
+        diagnosticVideoSample = sample;
+    }
+
+    @SuppressWarnings("deprecation")
+    private String diagnosticNetwork() {
+        float rssi = Float.NaN, linkRate = Float.NaN;
+        try {
+            ConnectivityManager manager = (ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
+            android.net.NetworkInfo network = manager.getActiveNetworkInfo();
+            if (network == null || !network.isConnected()) return getString(R.string.diag_network_unknown);
+            String name = network.getTypeName();
+            if (network.getType() == ConnectivityManager.TYPE_WIFI) {
+                android.net.wifi.WifiInfo wifi = ((WifiManager)getApplicationContext()
+                        .getSystemService(WIFI_SERVICE)).getConnectionInfo();
+                if (wifi != null && wifi.getRssi() > -127 && wifi.getLinkSpeed() > 0) {
+                    rssi = wifi.getRssi();
+                    linkRate = wifi.getLinkSpeed();
+                    name += String.format(java.util.Locale.getDefault(), "  %d dBm / %d MHz / %d Mbps",
+                            wifi.getRssi(), wifi.getFrequency(), wifi.getLinkSpeed());
+                }
             }
-        });
+            return name;
+        }
+        catch (SecurityException e) {
+            return getString(R.string.diag_network_unknown);
+        }
+        finally {
+            diagnosticWifiRssi = rssi;
+            diagnosticWifiLink = linkRate;
+        }
+    }
+
+    private void updateDiagnostics() {
+        long now = android.os.SystemClock.uptimeMillis();
+        long interval = Math.max(1, now - diagnosticLastTickMs);
+        long tickDelay = Math.max(0, now - diagnosticExpectedTickMs);
+        diagnosticLastTickMs = now;
+        long frameNowNs = System.nanoTime();
+        FrameTimingWindow.Sample frames = decoderRenderer.getFrameTimingSample(frameNowNs);
+        performanceOverlayView.recordFrameTimings(frames, now, frameNowNs);
+        float[] ft = frames.values;
+        float[] input = diagnosticInputAge.drain();
+        float[] submit = diagnosticSubmit.drain();
+        PerfSample video = diagnosticVideoSample;
+        boolean fresh = video != null && now - video.timestampMs < Math.max(500, performanceOverlayView.getRefreshMs() * 3L);
+        long rttInfo = MoonBridge.getEstimatedRttInfo();
+        float rtt = rttInfo == -1 ? Float.NaN : (int)(rttInfo >> 32);
+        float jitter = rttInfo == -1 ? Float.NaN : (int)rttInfo;
+        StringBuilder text = new StringBuilder(1024);
+        text.append(getString(R.string.diag_header)).append('\n');
+        text.append(diagnosticNetworkText == null ? getString(R.string.diag_network_unknown) : diagnosticNetworkText).append('\n');
+        if (!fresh) text.append(getString(R.string.diag_stale)).append('\n');
+        if (video != null) text.append(video.text).append('\n');
+        else text.append(getString(R.string.diag_waiting)).append('\n');
+        text.append(getString(R.string.diag_video_extra,
+                fresh ? video.videoMbps : Float.NaN, fresh ? video.frameGapMaxMs : Float.NaN,
+                fresh ? video.clientMs : Float.NaN)).append('\n');
+        text.append(getString(R.string.diag_input, (int)(input[0] * 1000 / interval), diagnosticContacts,
+                input[2], input[3])).append('\n');
+        text.append(getString(R.string.diag_submit, (int)(submit[0] * 1000 / interval), submit[2], submit[3],
+                diagnosticSendErrors, diagnosticUnsupported)).append('\n');
+        text.append(getString(R.string.diag_freshness,
+                video == null ? -1 : now - video.timestampMs, tickDelay)).append('\n');
+        long[] touch = MoonBridge.getTouchDiagnostics();
+        if (touch == null) touch = new long[12];
+        boolean traceValid = touch[10] == 0 && touch[11] == 0;
+        float queueWait = traceValid ? touch[4] / 1000f : Float.NaN;
+        float queueAge = traceValid ? touch[6] / 1000f : Float.NaN;
+        if (!traceValid) text.append(getString(R.string.diag_touch_trace_unknown)).append('\n');
+        text.append(getString(R.string.diag_touch_path,
+                diagnosticMoveEvents * 1000f / interval, touch[1] * 1000f / interval,
+                touch[3] * 1000f / interval, touch[5], queueAge,
+                queueWait, touch[7] / 1000f, touch[8], touch[9], touch[10], diagnosticTouchCancels)).append('\n');
+        double[] net = MoonBridge.getNetworkDiagnostics();
+        if (net == null) {
+            net = new double[32];
+            java.util.Arrays.fill(net, Double.NaN);
+        }
+        text.append(getString(R.string.diag_network_metrics,
+                net[0], net[1], net[2], net[3], net[4], net[5],
+                net[8], net[9], net[10], net[13], net[14], net[15],
+                net[17], net[18], net[21], net[22], net[23])).append('\n');
+        text.append(getString(R.string.diag_network_limits)).append('\n');
+        text.append(getString(R.string.diag_frame_summary,
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.PRESENT_P95], java.util.Locale.getDefault()),
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.PRESENT_P99], java.util.Locale.getDefault()),
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.PRESENT_PEAK], java.util.Locale.getDefault()),
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.BUDGET], java.util.Locale.getDefault()))).append('\n');
+        if (!decoderRenderer.hasFrameTimingCallbacks()) text.append(getString(R.string.diag_frame_unavailable)).append('\n');
+        if (decoderRenderer.isBackgroundOutput()) text.append(getString(R.string.diag_background_stream)).append('\n');
+        text.append(getString(R.string.diag_frame_limits)).append('\n');
+        text.append(getString(R.string.diag_limits));
+        performanceOverlayView.update(text.toString(), now, new float[] {
+                rtt, jitter, fresh ? video.frameGapMaxMs : Float.NaN,
+                input[2], input[3], submit[2], submit[3],
+                fresh ? video.receiveFps : Float.NaN, fresh && !decoderRenderer.isBackgroundOutput() ? video.renderFps : Float.NaN,
+                fresh ? video.decodeMs : Float.NaN, fresh ? video.clientMs : Float.NaN,
+                fresh ? video.videoMbps : Float.NaN, fresh ? video.lossPercent : Float.NaN,
+                fresh ? video.hostMs : Float.NaN, diagnosticSendErrors, tickDelay, diagnosticContacts,
+                diagnosticMoveEvents * 1000f / interval, touch[1] * 1000f / interval,
+                touch[3] * 1000f / interval, queueWait, queueAge,
+                traceValid ? touch[5] : Float.NaN, touch[7] / 1000f, diagnosticTouchCancels,
+                (float)net[0], (float)net[1], (float)net[2], (float)net[3], (float)net[4], (float)net[5],
+                (float)net[6], (float)net[7], (float)net[8], (float)net[9], (float)net[10],
+                (float)net[13], (float)net[14], (float)net[15], (float)net[16], (float)net[27],
+                (float)net[17], (float)net[18], (float)net[21], (float)net[22], (float)net[19], (float)net[20],
+                (float)net[29], (float)net[30], (float)net[11], (float)net[12], (float)net[31],
+                diagnosticWifiRssi, diagnosticWifiLink,
+                ft[FrameTimingWindow.PRESENT_LAST], ft[FrameTimingWindow.BUDGET],
+                ft[FrameTimingWindow.PRESENT_P95], ft[FrameTimingWindow.PRESENT_P99], ft[FrameTimingWindow.PRESENT_PEAK],
+                ft[FrameTimingWindow.SUBMIT_P95], ft[FrameTimingWindow.SUBMIT_PEAK],
+                ft[FrameTimingWindow.PACING_P95], ft[FrameTimingWindow.SURFACE_P95], ft[FrameTimingWindow.PRESENT_FPS],
+                ft[FrameTimingWindow.SLOW], ft[FrameTimingWindow.SEVERE], ft[FrameTimingWindow.EXCESS_PERCENT],
+                ft[FrameTimingWindow.PRESENT_IDLE], ft[FrameTimingWindow.CALLBACK_IDLE],
+                ft[FrameTimingWindow.CALLBACK_DELAY], ft[FrameTimingWindow.PENDING], ft[FrameTimingWindow.OVERFLOW]});
+        diagnosticMoveEvents = diagnosticTouchCancels = 0;
+        diagnosticSendErrors = diagnosticUnsupported = 0;
     }
 
     @Override

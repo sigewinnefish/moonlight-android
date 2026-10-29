@@ -38,9 +38,25 @@ import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.input.MouseButtonPacket;
+import com.limelight.nvstream.input.KeyboardPacket;
+import com.limelight.nvstream.input.HeldInputState;
 import com.limelight.nvstream.jni.MoonBridge;
 
 public class NvConnection {
+    private final HeldInputState heldInput = new HeldInputState();
+    private static final HeldInputState.ReleaseListener releaseHeldInput = new HeldInputState.ReleaseListener() {
+        @Override public void keyUp(short code, byte flags) {
+            MoonBridge.sendKeyboardInput(code, KeyboardPacket.KEY_UP, (byte)0, flags);
+        }
+        @Override public void mouseUp(byte button) {
+            MoonBridge.sendMouseButton(MouseButtonPacket.RELEASE_EVENT, button);
+        }
+    };
+
+    public void releaseKeyboardAndMouse() {
+        synchronized (heldInput) { heldInput.release(releaseHeldInput); }
+    }
+
     // Context parameters
     private LimelightCryptoProvider cryptoProvider;
     private String uniqueId;
@@ -474,14 +490,20 @@ public class NvConnection {
     public void sendMouseButtonDown(final byte mouseButton)
     {
         if (!isMonkey) {
-            MoonBridge.sendMouseButton(MouseButtonPacket.PRESS_EVENT, mouseButton);
+            synchronized (heldInput) {
+                heldInput.mouse(mouseButton, true);
+                MoonBridge.sendMouseButton(MouseButtonPacket.PRESS_EVENT, mouseButton);
+            }
         }
     }
     
     public void sendMouseButtonUp(final byte mouseButton)
     {
         if (!isMonkey) {
-            MoonBridge.sendMouseButton(MouseButtonPacket.RELEASE_EVENT, mouseButton);
+            synchronized (heldInput) {
+                heldInput.mouse(mouseButton, false);
+                MoonBridge.sendMouseButton(MouseButtonPacket.RELEASE_EVENT, mouseButton);
+            }
         }
     }
     
@@ -499,7 +521,10 @@ public class NvConnection {
 
     public void sendKeyboardInput(final short keyMap, final byte keyDirection, final byte modifier, final byte flags) {
         if (!isMonkey) {
-            MoonBridge.sendKeyboardInput(keyMap, keyDirection, modifier, flags);
+            synchronized (heldInput) {
+                heldInput.key(keyMap, flags, keyDirection == KeyboardPacket.KEY_DOWN);
+                MoonBridge.sendKeyboardInput(keyMap, keyDirection, modifier, flags);
+            }
         }
     }
     

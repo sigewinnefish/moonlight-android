@@ -14,6 +14,7 @@ import org.jcodec.codecs.h264.io.model.SeqParameterSet;
 import org.jcodec.codecs.h264.io.model.VUIParameters;
 
 import com.limelight.BuildConfig;
+import com.limelight.diagnostics.FrameTimingWindow;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
@@ -24,6 +25,8 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
 import android.media.MediaCodec;
+import android.graphics.SurfaceTexture;
+import android.view.Surface;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.media.MediaCodec.BufferInfo;
@@ -68,13 +71,27 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int initialWidth, initialHeight;
     private int videoFormat;
     private SurfaceHolder renderTarget;
+    private volatile Surface outputSurface;
+    private SurfaceTexture backgroundTexture;
+    private Surface backgroundSurface;
+    private volatile boolean backgroundOutput;
+    private final Object presentationLock = new Object();
     private volatile boolean stopping;
     private CrashListener crashListener;
     private boolean reportedCrash;
     private int consecutiveCrashCount;
     private String glRenderer;
-    private boolean foreground = true;
+    private volatile boolean foreground = true;
     private PerfOverlayListener perfListener;
+    private final com.limelight.diagnostics.VideoDiagnosticWindow diagnosticVideo =
+            new com.limelight.diagnostics.VideoDiagnosticWindow();
+    private final FrameTimingWindow diagnosticFrames = new FrameTimingWindow();
+    private volatile HandlerThread diagnosticFrameThread;
+    private volatile int diagnosticCodecEpoch;
+    private volatile boolean diagnosticCallbacksAvailable;
+    private long diagnosticLastSampleMs;
+    private String diagnosticText = "";
+    private float diagnosticClientMs = Float.NaN;
 
     private static final int CR_MAX_TRIES = 10;
     private static final int CR_RECOVERY_TYPE_NONE = 0;
@@ -273,6 +290,63 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.renderTarget = renderTarget;
     }
 
+    public boolean prepareBackgroundStreaming() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || stopping) return false;
+        if (backgroundSurface != null && backgroundSurface.isValid()) return true;
+        try {
+            // Detached SurfaceTexture needs no EGL context. Background output is
+            // decoded and released with render=false, so its queue is never filled.
+            backgroundTexture = new SurfaceTexture(false);
+            backgroundTexture.setDefaultBufferSize(initialWidth, initialHeight);
+            backgroundSurface = new Surface(backgroundTexture);
+            return backgroundSurface.isValid();
+        }
+        catch (RuntimeException e) {
+            if (backgroundSurface != null) backgroundSurface.release();
+            if (backgroundTexture != null) backgroundTexture.release();
+            backgroundSurface = null; backgroundTexture = null;
+            LimeLog.warning("Background video target unavailable: " + e.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    public boolean isBackgroundOutput() { return backgroundOutput; }
+
+    public boolean useBackgroundSurface() { return switchOutputSurface(backgroundSurface, true); }
+
+    public boolean useForegroundSurface(Surface surface) { return switchOutputSurface(surface, false); }
+
+    private boolean switchOutputSurface(Surface surface, boolean background) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || surface == null || !surface.isValid()) return false;
+        // Surface retargeting preserves output-buffer indices. Exclude an in-flight
+        // paced presentation and serialize against codec reset/reconfiguration.
+        synchronized (presentationLock) {
+            synchronized (codecRecoveryMonitor) {
+                if (stopping || videoDecoder == null) return false;
+                if (outputSurface == surface && backgroundOutput == background) return true;
+                outputSurface = surface; backgroundOutput = background;
+                diagnosticFrames.reset();
+                diagnosticFrames.setCallbacksEnabled(!background && diagnosticCallbacksAvailable);
+                if (codecRecoveryType.get() == CR_RECOVERY_TYPE_NONE) {
+                    try { videoDecoder.setOutputSurface(surface); }
+                    catch (RuntimeException e) {
+                        // Some codecs require a restart when the Surface changes.
+                        // Existing worker quiescence and IDR recovery do that safely.
+                        LimeLog.warning("Restarting decoder for Surface change: " + e.getClass().getSimpleName());
+                        codecRecoveryType.compareAndSet(CR_RECOVERY_TYPE_NONE, CR_RECOVERY_TYPE_RESTART);
+                    }
+                }
+                // A transition can occur after input/output workers already began
+                // waiting for paced-render quiescence. Wake that participant with a
+                // normal looper task even when Android stops background vsync.
+                if (choreographerHandler != null) {
+                    choreographerHandler.post(() -> doCodecRecoveryIfRequired(CR_FLAG_CHOREOGRAPHER));
+                }
+                return true;
+            }
+        }
+    }
+
     public MediaCodecDecoderRenderer(Activity activity, PreferenceConfiguration prefs,
                                      CrashListener crashListener, int consecutiveCrashCount,
                                      boolean meteredData, boolean requestedHdr,
@@ -432,10 +506,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public void notifyVideoForeground() {
         foreground = true;
+        if (prefs.enablePerfOverlay) diagnosticFrames.reset();
     }
 
     public void notifyVideoBackground() {
         foreground = false;
+        if (prefs.enablePerfOverlay) diagnosticFrames.reset();
     }
 
     public int getActiveVideoFormat() {
@@ -516,7 +592,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         LimeLog.info("Configuring with format: "+format);
 
-        videoDecoder.configure(format, renderTarget.getSurface(), null, 0);
+        if (outputSurface == null) outputSurface = renderTarget.getSurface();
+        videoDecoder.configure(format, outputSurface, null, 0);
 
         configuredFormat = format;
 
@@ -534,7 +611,40 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Start the decoder
         videoDecoder.start();
+        installDiagnosticFrameListener();
+    }
 
+    private void installDiagnosticFrameListener() {
+        if (stopping || !prefs.enablePerfOverlay || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        final int epoch = ++diagnosticCodecEpoch;
+        diagnosticFrames.reset(); diagnosticFrames.setCallbacksEnabled(false);
+        diagnosticCallbacksAvailable = false;
+        try {
+            if (diagnosticFrameThread == null) {
+                diagnosticFrameThread = new HandlerThread("Video - Frame diagnostics");
+                diagnosticFrameThread.start();
+            }
+            // A dedicated looper keeps UI stalls out of callback delivery timing.
+            // Only observer state is touched here; no MediaCodec calls/recovery locks.
+            videoDecoder.setOnFrameRenderedListener((codec, pts, renderNs) -> {
+                if (!stopping && !backgroundOutput && epoch == diagnosticCodecEpoch) {
+                    diagnosticFrames.rendered(pts, renderNs, System.nanoTime());
+                }
+            }, new Handler(diagnosticFrameThread.getLooper()));
+            diagnosticFrames.setCallbacksEnabled(!backgroundOutput); diagnosticCallbacksAvailable = true;
+        }
+        catch (RuntimeException e) {
+            // Optional telemetry must never prevent decoder startup or streaming.
+            LimeLog.warning("Frame presentation diagnostics unavailable: " + e.getClass().getSimpleName());
+        }
+    }
+
+    public boolean hasFrameTimingCallbacks() { return diagnosticCallbacksAvailable; }
+
+    public FrameTimingWindow.Sample getFrameTimingSample(long nowNs) {
+        diagnosticFrames.setTargetFps(Math.min(refreshRate,
+                activity.getWindowManager().getDefaultDisplay().getRefreshRate()));
+        return diagnosticFrames.drain(nowNs);
     }
 
     private boolean tryConfigureDecoder(MediaCodecInfo selectedDecoderInfo, MediaFormat format, boolean throwOnCodecError) {
@@ -680,6 +790,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.initialHeight = height;
         this.videoFormat = format;
         this.refreshRate = redrawRate;
+        diagnosticFrames.setTargetFps(Math.min(redrawRate,
+                activity.getWindowManager().getDefaultDisplay().getRefreshRate()));
 
         return initializeDecoder(false);
     }
@@ -695,8 +807,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // We need some sort of recovery, so quiesce all threads before starting that
         synchronized (codecRecoveryMonitor) {
-            if (choreographerHandlerThread == null) {
-                // If we have no choreographer thread, we can just mark that as quiesced right now.
+            if (choreographerHandlerThread == null || backgroundOutput) {
+                // Offscreen rendering bypasses Choreographer; no background vsync is required.
                 codecRecoveryThreadQuiescedFlags |= CR_FLAG_CHOREOGRAPHER;
             }
 
@@ -708,12 +820,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 nextInputBuffer = null;
                 nextInputBufferIndex = -1;
                 outputBufferQueue.clear();
+                diagnosticCodecEpoch++;
+                diagnosticFrames.reset();
 
                 // If we just need a flush, do so now with all threads quiesced.
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_FLUSH) {
                     LimeLog.warning("Flushing decoder");
                     try {
                         videoDecoder.flush();
+                        installDiagnosticFrameListener();
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalStateException e) {
                         e.printStackTrace();
@@ -951,33 +1066,40 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return;
         }
 
-        frameTimeNanos -= activity.getWindowManager().getDefaultDisplay().getAppVsyncOffsetNanos();
+        synchronized (presentationLock) {
+            if (!backgroundOutput) {
+                frameTimeNanos -= activity.getWindowManager().getDefaultDisplay().getAppVsyncOffsetNanos();
 
-        // Don't render unless a new frame is due. This prevents microstutter when streaming
-        // at a frame rate that doesn't match the display (such as 60 FPS on 120 Hz).
-        long actualFrameTimeDeltaNs = frameTimeNanos - lastRenderedFrameTimeNanos;
-        long expectedFrameTimeDeltaNs = 800000000 / refreshRate; // within 80% of the next frame
-        if (actualFrameTimeDeltaNs >= expectedFrameTimeDeltaNs) {
-            // Render up to one frame when in frame pacing mode.
-            //
-            // NB: Since the queue limit is 2, we won't starve the decoder of output buffers
-            // by holding onto them for too long. This also ensures we will have that 1 extra
-            // frame of buffer to smooth over network/rendering jitter.
-            Integer nextOutputBuffer = outputBufferQueue.poll();
-            if (nextOutputBuffer != null) {
-                try {
-                    videoDecoder.releaseOutputBuffer(nextOutputBuffer, frameTimeNanos);
+                // Don't render unless a new frame is due. This prevents microstutter when streaming
+                // at a frame rate that doesn't match the display (such as 60 FPS on 120 Hz).
+                long actualFrameTimeDeltaNs = frameTimeNanos - lastRenderedFrameTimeNanos;
+                long expectedFrameTimeDeltaNs = 800000000 / refreshRate; // within 80% of the next frame
+                if (actualFrameTimeDeltaNs >= expectedFrameTimeDeltaNs) {
+                    // Render up to one frame when in frame pacing mode.
+                    //
+                    // NB: Since the queue limit is 2, we won't starve the decoder of output buffers
+                    // by holding onto them for too long. This also ensures we will have that 1 extra
+                    // frame of buffer to smooth over network/rendering jitter.
+                    Integer nextOutputBuffer = outputBufferQueue.poll();
+                    if (nextOutputBuffer != null) {
+                        try {
+                            if (prefs.enablePerfOverlay) diagnosticFrames.released(nextOutputBuffer, System.nanoTime());
+                            videoDecoder.releaseOutputBuffer(nextOutputBuffer, frameTimeNanos);
 
-                    lastRenderedFrameTimeNanos = frameTimeNanos;
-                    activeWindowVideoStats.totalFramesRendered++;
-                } catch (IllegalStateException ignored) {
-                    try {
-                        // Try to avoid leaking the output buffer by releasing it without rendering
-                        videoDecoder.releaseOutputBuffer(nextOutputBuffer, false);
-                    } catch (IllegalStateException e) {
-                        // This will leak nextOutputBuffer, but there's really nothing else we can do
-                        e.printStackTrace();
-                        handleDecoderException(e);
+                            lastRenderedFrameTimeNanos = frameTimeNanos;
+                            activeWindowVideoStats.totalFramesRendered++;
+                            if (prefs.enablePerfOverlay) diagnosticVideo.rendered();
+                        } catch (IllegalStateException ignored) {
+                            if (prefs.enablePerfOverlay) diagnosticFrames.reset();
+                            try {
+                                // Try to avoid leaking the output buffer by releasing it without rendering
+                                videoDecoder.releaseOutputBuffer(nextOutputBuffer, false);
+                            } catch (IllegalStateException e) {
+                                // This will leak nextOutputBuffer, but there's really nothing else we can do
+                                e.printStackTrace();
+                                handleDecoderException(e);
+                            }
+                        }
                     }
                 }
             }
@@ -1019,39 +1141,61 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 BufferInfo info = new BufferInfo();
                 while (!stopping) {
                     try {
+                        // Paced buffers left during a Surface transition are no
+                        // longer visible. Drain them without relying on background vsync.
+                        if (backgroundOutput) {
+                            Integer old;
+                            while ((old = outputBufferQueue.poll()) != null) {
+                                if (prefs.enablePerfOverlay) diagnosticFrames.discarded(old);
+                                videoDecoder.releaseOutputBuffer(old, false);
+                            }
+                        }
                         // Try to output a frame
                         int outIndex = videoDecoder.dequeueOutputBuffer(info, 50000);
                         if (outIndex >= 0) {
                             long presentationTimeUs = info.presentationTimeUs;
                             int lastIndex = outIndex;
+                            if (prefs.enablePerfOverlay) diagnosticFrames.decoded(lastIndex, presentationTimeUs, System.nanoTime());
 
                             numFramesOut++;
 
                             // Render the latest frame now if frame pacing isn't in balanced mode
-                            if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
+                            if (backgroundOutput || prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
                                 // Get the last output buffer in the queue
                                 while ((outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
+                                    if (prefs.enablePerfOverlay) diagnosticFrames.discarded(lastIndex);
                                     videoDecoder.releaseOutputBuffer(lastIndex, false);
 
                                     numFramesOut++;
 
                                     lastIndex = outIndex;
                                     presentationTimeUs = info.presentationTimeUs;
+                                    if (prefs.enablePerfOverlay) diagnosticFrames.decoded(lastIndex, presentationTimeUs, System.nanoTime());
                                 }
 
-                                if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
-                                        prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
-                                    // In max smoothness or cap FPS mode, we want to never drop frames
-                                    // Use a PTS that will cause this frame to never be dropped
-                                    videoDecoder.releaseOutputBuffer(lastIndex, 0);
-                                }
-                                else {
-                                    // Use a PTS that will cause this frame to be dropped if another comes in within
-                                    // the same V-sync period
-                                    videoDecoder.releaseOutputBuffer(lastIndex, System.nanoTime());
-                                }
+                                synchronized (presentationLock) {
+                                    if (backgroundOutput) {
+                                        if (prefs.enablePerfOverlay) diagnosticFrames.discarded(lastIndex);
+                                        videoDecoder.releaseOutputBuffer(lastIndex, false);
+                                    }
+                                    else {
+                                        if (prefs.enablePerfOverlay) diagnosticFrames.released(lastIndex, System.nanoTime());
+                                        if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
+                                                prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
+                                            // In max smoothness or cap FPS mode, we want to never drop frames
+                                            // Use a PTS that will cause this frame to never be dropped
+                                            videoDecoder.releaseOutputBuffer(lastIndex, 0);
+                                        }
+                                        else {
+                                            // Use a PTS that will cause this frame to be dropped if another comes in within
+                                            // the same V-sync period
+                                            videoDecoder.releaseOutputBuffer(lastIndex, System.nanoTime());
+                                        }
 
-                                activeWindowVideoStats.totalFramesRendered++;
+                                        activeWindowVideoStats.totalFramesRendered++;
+                                        if (prefs.enablePerfOverlay) diagnosticVideo.rendered();
+                                    }
+                                }
                             }
                             else {
                                 // For balanced frame pacing case, the Choreographer callback will handle rendering.
@@ -1064,7 +1208,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 // refresh rate).
                                 if (outputBufferQueue.size() == OUTPUT_BUFFER_QUEUE_LIMIT) {
                                     try {
-                                        videoDecoder.releaseOutputBuffer(outputBufferQueue.take(), false);
+                                        int droppedBuffer = outputBufferQueue.take();
+                                        if (prefs.enablePerfOverlay) diagnosticFrames.discarded(droppedBuffer);
+                                        videoDecoder.releaseOutputBuffer(droppedBuffer, false);
                                     } catch (InterruptedException e) {
                                         // We're shutting down, so we can just drop this buffer on the floor
                                         // and it will be reclaimed when the codec is released.
@@ -1080,6 +1226,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             long delta = SystemClock.uptimeMillis() - (presentationTimeUs / 1000);
                             if (delta >= 0 && delta < 1000) {
                                 activeWindowVideoStats.decoderTimeMs += delta;
+                                if (prefs.enablePerfOverlay) diagnosticVideo.decoded(delta);
                                 if (!USE_FRAME_RENDER_TIME) {
                                     activeWindowVideoStats.totalTimeMs += delta;
                                 }
@@ -1098,6 +1245,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             }
                         }
                     } catch (IllegalStateException e) {
+                        if (prefs.enablePerfOverlay) diagnosticFrames.reset();
                         handleDecoderException(e);
                     } finally {
                         doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);
@@ -1186,6 +1334,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public void prepareForStop() {
         // Let the decoding code know to ignore codec exceptions now
         stopping = true;
+        diagnosticCodecEpoch++; diagnosticFrames.reset();
+        if (diagnosticFrameThread != null) diagnosticFrameThread.quit();
 
         // Halt the rendering thread
         if (rendererThread != null) {
@@ -1247,7 +1397,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void cleanup() {
-        videoDecoder.release();
+        diagnosticCodecEpoch++; diagnosticFrames.reset();
+        if (diagnosticFrameThread != null) diagnosticFrameThread.quit();
+        try { videoDecoder.release(); }
+        finally {
+            if (backgroundSurface != null) backgroundSurface.release();
+            if (backgroundTexture != null) backgroundTexture.release();
+            backgroundSurface = null; backgroundTexture = null;
+        }
     }
 
     @Override
@@ -1351,6 +1508,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return MoonBridge.DR_OK;
         }
 
+        if (prefs.enablePerfOverlay) {
+            long now = SystemClock.uptimeMillis();
+            diagnosticVideo.incoming(now, frameNumber, decodeUnitLength, receiveTimeUs, frameHostProcessingLatency);
+            if (diagnosticLastSampleMs == 0) diagnosticLastSampleMs = now;
+        }
         if (lastFrameNumber == 0) {
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
         } else if (frameNumber != lastFrameNumber && frameNumber != lastFrameNumber + 1) {
@@ -1389,7 +1551,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     decoder = "(unknown)";
                 }
 
-                float decodeTimeMs = (float)lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
+                float decodeTimeMs = lastTwo.totalFramesReceived == 0 ? Float.NaN : (float)lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
                 long rttInfo = MoonBridge.getEstimatedRttInfo();
                 StringBuilder sb = new StringBuilder();
                 sb.append(context.getString(R.string.perf_overlay_streamdetails, initialWidth + "x" + initialHeight, fps.totalFps)).append('\n');
@@ -1407,13 +1569,25 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             (float)lastTwo.totalHostProcessingLatency / 10 / lastTwo.framesWithHostProcessingLatency)).append('\n');
                 }
                 sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs));
-                perfListener.onPerfUpdate(sb.toString());
+                diagnosticText = sb.toString();
+                diagnosticClientMs = lastTwo.totalFramesReceived == 0 ? Float.NaN :
+                        (float)lastTwo.totalTimeMs / lastTwo.totalFramesReceived;
             }
 
             globalVideoStats.add(activeWindowVideoStats);
             lastWindowVideoStats.copy(activeWindowVideoStats);
             activeWindowVideoStats.clear();
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
+        }
+
+        if (prefs.enablePerfOverlay) {
+            long now = SystemClock.uptimeMillis();
+            if (now - diagnosticLastSampleMs >= Math.max(100, perfListener.getPerfRefreshMs())) {
+                float[] window = diagnosticVideo.drain(now);
+                perfListener.onPerfUpdate(new PerfSample(diagnosticText, now, window[0], window[1],
+                        diagnosticClientMs, window[2], window[3], window[4], window[5], window[6]));
+                diagnosticLastSampleMs = now;
+            }
         }
 
         boolean csdSubmittedForThisFrame = false;
