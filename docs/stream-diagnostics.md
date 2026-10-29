@@ -28,3 +28,17 @@ The original video counters remain about two-second rolling statistics. Added vi
 `bash tests/diagnostics/run.sh` tests missing samples, negative/non-finite input, percentile rounding, bounded-window wrapping, exact interval peaks, 1,000 drain cycles, 60-slot history wrapping and graph scale. `bash tests/native-touch/run.sh` remains the input regression suite. CI runs both plus the complete nonRoot Debug build/lint. These host tests do not verify Canvas rendering, Wi-Fi measurements or an actual wireless stall; those require Android hardware.
 
 No new protocol, service, third-party dependency, permission or environment publication. Diff is on `feature/stream-diagnostics`, based on `feature/native-multitouch`, to keep the existing multi-touch PR and upstream master separate.
+
+## Signing and updates
+
+Android updates require the same application ID **and signing certificate**. Early Actions builds generated temporary keys independently; their private keys were not retained. Those installations cannot be updated with a differently signed APK, even when both signatures verify successfully. Do not uninstall a working installation just to diagnose networking.
+
+For a parallel install that preserves the old application/data:
+
+```
+bash gradlew -I scripts/diagnostics-side-by-side.init.gradle :app:assembleNonRootDebug
+```
+
+This optional build uses `com.limelight.debug.diagnostics` and the label `Moonlight Diagnostics`. It starts with its own settings/pairing and does not migrate the other app's private data. Normal builds retain the upstream debug application ID.
+
+The current workspace keeps a stable debug key in `/workspace/.android/debug.keystore`. Keep that private key backed up securely; never commit it or include it in APK artifacts. For stable Actions signing, an administrator must configure repository Actions Secret `MOONLIGHT_DEBUG_KEYSTORE_BASE64` with the base64-encoded keystore (standard Android debug alias/password). The current GitHub integration cannot read/write Actions Secrets (HTTP 403). The workflow restores the secret when available and otherwise explicitly warns that its APK is for fresh installation only. Artifacts include the public signing certificate digest; compare it with the installed/baseline APK before promising an upgrade. This debug key is not a production release key.

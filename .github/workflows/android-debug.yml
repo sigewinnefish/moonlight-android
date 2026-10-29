@@ -22,17 +22,38 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-37.0 build-tools;36.0.0 ndk;29.0.14206865'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Restore persistent debug signing key when configured
+        env:
+          KEYSTORE_BASE64: ${{ secrets.MOONLIGHT_DEBUG_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo '::warning::Persistent signing key missing. This APK is for fresh installation only; do not assume it can update an installed build.'
+          else
+            umask 077
+            mkdir -p "$HOME/.android"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+            keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey > /dev/null
+          fi
       - name: Touch state regression tests
         run: bash tests/native-touch/run.sh
       - name: Diagnostics regression tests
         run: bash tests/diagnostics/run.sh
       - name: Build APK and run lint
         run: bash gradlew --no-daemon --max-workers=4 :app:assembleNonRootDebug :app:lintNonRootDebug
+      - name: Record APK signing identity and update limitation
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs app/build/outputs/apk/nonRoot/debug/app-nonRoot-debug.apk > app/build/outputs/apk/nonRoot/debug/signing-certificate.txt
+          echo 'Updates require the same package name AND signing certificate as the installed APK. A valid signature alone does not establish upgrade compatibility.' > app/build/outputs/apk/nonRoot/debug/INSTALL-NOTES.txt
       - name: Upload Debug APK and lint report
         uses: actions/upload-artifact@v4
         with:
           name: moonlight-stream-diagnostics-debug
           path: |
             app/build/outputs/apk/nonRoot/debug/*.apk
+            app/build/outputs/apk/nonRoot/debug/*.txt
             app/build/reports/lint-results-nonRootDebug.*
           if-no-files-found: error

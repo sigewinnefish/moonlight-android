@@ -1,0 +1,11 @@
+// Optional, separate diagnostics installation. Does not change the normal app ID.
+gradle.beforeProject { project ->
+    project.pluginManager.withPlugin('com.android.application') {
+        project.androidComponents.finalizeDsl { android ->
+            def debug = android.buildTypes.getByName('debug')
+            debug.applicationIdSuffix = '.debug.diagnostics'
+            debug.resValue 'string', 'app_label', 'Moonlight Diagnostics'
+            debug.resValue 'string', 'app_label_root', 'Moonlight Diagnostics (Root)'
+        }
+    }
+}
