@@ -331,7 +331,7 @@
     <string name="diag_chart_selection">Charts shown in dashboard</string>
     <string name="diag_defaults">Defaults</string>
     <string name="diag_apply">Apply</string>
-    <string name="diag_hud_summary">RTT %1$.1f ms · Render %2$.1f FPS\nTouch P95/peak %3$.1f / %4$.1f ms\nSubmit peak %5$.2f ms · Errors %6$d</string>
+    <string name="diag_hud_summary">RTT %1$s ms · Render %2$s FPS\nTouch P95/peak %3$s / %4$s ms\nSubmit peak %5$s ms · Errors %6$d</string>
     <string-array name="diag_chart_names">
         <item>Network RTT and variation</item>
         <item>Video frame arrival interval</item>

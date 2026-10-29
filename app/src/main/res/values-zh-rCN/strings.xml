@@ -312,7 +312,7 @@
     <string name="diag_chart_selection">详细面板显示的图表</string>
     <string name="diag_defaults">恢复默认</string>
     <string name="diag_apply">应用</string>
-    <string name="diag_hud_summary">RTT %1$.1f ms · 渲染 %2$.1f FPS\n触摸等待P95/峰值 %3$.1f / %4$.1f ms\n提交峰值 %5$.2f ms · 失败 %6$d</string>
+    <string name="diag_hud_summary">RTT %1$s ms · 渲染 %2$s FPS\n触摸等待P95/峰值 %3$s / %4$s ms\n提交峰值 %5$s ms · 失败 %6$d</string>
     <string-array name="diag_chart_names">
         <item>网络RTT与波动</item>
         <item>视频帧到达间隔</item>

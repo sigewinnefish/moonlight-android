@@ -46,6 +46,11 @@ public final class PerformanceOverlayView extends LinearLayout {
     private final ArrayList<Chart> detailCharts = new ArrayList<>();
     private final TextView hudText;
     private final LinearLayout body, hudHeader;
+    private final HudContent hudContent;
+    private final View hudHeaderSpace;
+    private PopupWindow hudBodyWindow, hudControlsWindow, hudCancelPopup;
+    private int hudX, hudY;
+    private final int[] hudWindowOrigin = new int[2];
     private final Button hudPassButton;
     private Button detailPassButton;
     private PopupWindow cancelPassPopup;
@@ -62,7 +67,7 @@ public final class PerformanceOverlayView extends LinearLayout {
     private View activityRoot;
     private final OnLayoutChangeListener rootLayoutListener = (v, l, t, r, b, ol, ot, or, ob) -> {
         if (r-l != or-ol || b-t != ob-ot) {
-            post(() -> { restoreHudPosition(); restoreDashboardBounds(); });
+            post(() -> { syncHudWindows(); restoreHudPosition(); restoreDashboardBounds(); });
         }
     };
     private TextView detailText, emptyChartsNotice;
@@ -80,12 +85,19 @@ public final class PerformanceOverlayView extends LinearLayout {
         density = getResources().getDisplayMetrics().density;
         prefs = context.getSharedPreferences("stream_diagnostics", Context.MODE_PRIVATE);
         setOrientation(VERTICAL);
-        setPadding(dp(5), 0, dp(5), dp(4));
-        setClickable(false);
+        // This view is only the lifecycle/data controller. HUD surfaces live in
+        // their own windows, outside the SurfaceView's transparent-region/clipping tree.
+        setPadding(0, 0, 0, 0); setBackgroundColor(Color.TRANSPARENT);
+        setClickable(false); setWillNotDraw(true);
+        hudX = hudY = dp(10);
+        hudContent = new HudContent(context);
+        hudContent.setOrientation(VERTICAL); hudContent.setPadding(dp(5), 0, dp(5), dp(4));
+        hudContent.setClickable(false);
         body = new LinearLayout(context);
         body.setOrientation(VERTICAL);
         LinearLayout header = new LinearLayout(context);
         hudHeader = header;
+        hudHeader.setPadding(dp(5), 0, dp(5), 0);
         TextView handle = label(16); handle.setText("⠿"); handle.setGravity(Gravity.CENTER);
         handle.setContentDescription(getContext().getString(R.string.diag_drag));
         header.addView(handle, new LayoutParams(dp(30), -1));
@@ -94,7 +106,7 @@ public final class PerformanceOverlayView extends LinearLayout {
             hudExpanded = !hudExpanded;
             body.setVisibility(hudExpanded ? VISIBLE : GONE);
             ((Button)v).setText(hudExpanded ? R.string.diag_fold : R.string.diag_unfold);
-            requestLayout();
+            hudContent.requestLayout();
         });
         button(header, R.string.diag_open_dashboard, v -> showDashboard());
         button(header, R.string.diag_settings, v -> showSettings());
@@ -102,7 +114,8 @@ public final class PerformanceOverlayView extends LinearLayout {
             if (detailPassThrough) { setDetailPassThrough(false); setHudPassThrough(false); }
             else setHudPassThrough(!hudPassThrough);
         });
-        addView(header, new LayoutParams(-1, dp(48)));
+        hudHeaderSpace = new View(context);
+        hudContent.addView(hudHeaderSpace, new LayoutParams(-1, dp(48)));
         hudText = label(10);
         hudText.setIncludeFontPadding(false);
         body.addView(hudText);
@@ -110,7 +123,7 @@ public final class PerformanceOverlayView extends LinearLayout {
         hudInput = new Chart(context, 2, true);
         body.addView(hudNetwork, new LayoutParams(-1, dp(76)));
         body.addView(hudInput, new LayoutParams(-1, dp(76)));
-        addView(body);
+        hudContent.addView(body);
         loadSettings();
     }
 
@@ -153,7 +166,7 @@ public final class PerformanceOverlayView extends LinearLayout {
         compact = prefs.getBoolean("compact", true);
         hudText.setMaxLines(compact ? 4 : 10);
         hudText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        setBackgroundColor(Color.argb(opacity * 255 / 100, 21, 27, 35));
+        hudContent.setBackgroundColor(Color.argb(opacity * 255 / 100, 21, 27, 35));
     }
 
     public void setInputModeListener(Runnable listener) { inputModeListener = listener; }
@@ -172,6 +185,33 @@ public final class PerformanceOverlayView extends LinearLayout {
             control.setLongClickable(false);
         }
         hudPassButton.setText(enabled ? R.string.diag_cancel_passthrough : R.string.diag_passthrough);
+        if (!enabled) {
+            PopupWindow popup = hudCancelPopup; hudCancelPopup = null;
+            if (popup != null) popup.dismiss();
+        }
+        if (hudControlsWindow != null && hudControlsWindow.isShowing()) {
+            if (enabled) ensureHudCancel();
+            hudControlsWindow.setTouchable(!hudPassThrough); hudControlsWindow.update();
+        }
+    }
+
+    private void ensureHudCancel() {
+        if (!hudPassThrough || hudControlsWindow == null || !hudControlsWindow.isShowing()) return;
+        if (hudCancelPopup != null && hudCancelPopup.isShowing()) return;
+        Button cancel = new Button(getContext()); cancel.setText(R.string.diag_cancel_passthrough);
+        cancel.setTextSize(10); cancel.setAllCaps(false); cancel.setPadding(dp(2), 0, dp(2), 0);
+        cancel.setMinWidth(0); cancel.setMinimumWidth(0); cancel.setMaxLines(2);
+        cancel.setOnClickListener(v -> cancelPassThrough());
+        PopupWindow popup = hudWindow(cancel, Math.max(dp(96), hudPassButton.getWidth()),
+                Math.max(dp(40), cancel.getLineHeight()*2+dp(4)), true);
+        popup.setOnDismissListener(() -> {
+            if (hudCancelPopup == popup && hudPassThrough) setHudPassThrough(false);
+        });
+        hudCancelPopup = popup;
+        try { popup.showAsDropDown(hudPassButton, 0, -hudPassButton.getHeight(), Gravity.START); }
+        catch (WindowManager.BadTokenException e) {
+            hudCancelPopup = null; popup.dismiss(); setHudPassThrough(false);
+        }
     }
 
     private void setDetailPassThrough(boolean enabled) {
@@ -179,7 +219,10 @@ public final class PerformanceOverlayView extends LinearLayout {
         releaseRemoteTouches(); detailPassThrough = enabled;
         // The small HUD may overlap the diagnostic window. Its old controls must
         // not intercept touches revealed by making the detailed window non-touchable.
-        if (enabled) { hudPassBeforeDetail = hudPassThrough; setHudPassThrough(true); }
+        if (enabled) {
+            hudPassBeforeDetail = hudPassThrough; setHudPassThrough(true);
+            if (!hudPassThrough) { detailPassThrough = false; return; }
+        }
         else setHudPassThrough(hudPassBeforeDetail);
         if (!enabled) {
             PopupWindow popup = cancelPassPopup; cancelPassPopup = null;
@@ -252,9 +295,12 @@ public final class PerformanceOverlayView extends LinearLayout {
         String text;
         if (compact && latest != null) {
             text = getContext().getString(R.string.diag_hud_summary,
-                    latest[DiagnosticCharts.RTT], latest[DiagnosticCharts.RENDER_FPS],
-                    latest[DiagnosticCharts.INPUT_P95], latest[DiagnosticCharts.INPUT_PEAK],
-                    latest[DiagnosticCharts.SUBMIT_PEAK], (int)latest[DiagnosticCharts.ERRORS]);
+                    DiagnosticCharts.formatValue(latest[DiagnosticCharts.RTT], Locale.getDefault()),
+                    DiagnosticCharts.formatValue(latest[DiagnosticCharts.RENDER_FPS], Locale.getDefault()),
+                    DiagnosticCharts.formatValue(latest[DiagnosticCharts.INPUT_P95], Locale.getDefault()),
+                    DiagnosticCharts.formatValue(latest[DiagnosticCharts.INPUT_PEAK], Locale.getDefault()),
+                    DiagnosticCharts.formatValue(latest[DiagnosticCharts.SUBMIT_PEAK], Locale.getDefault()),
+                    (int)latest[DiagnosticCharts.ERRORS]);
         }
         else text = latestText;
         if (hudSpaceLimited) text = getContext().getString(R.string.diag_hud_space_limited, text);
@@ -313,26 +359,88 @@ public final class PerformanceOverlayView extends LinearLayout {
         return Math.max(1, parent.getHeight()-parent.getPaddingTop()-parent.getPaddingBottom());
     }
 
+    private PopupWindow hudWindow(View content, int width, int height, boolean touchable) {
+        PopupWindow popup = new PopupWindow(content, width, height, false);
+        popup.setTouchable(touchable); popup.setOutsideTouchable(false); popup.setSplitTouchEnabled(true);
+        popup.setInputMethodMode(PopupWindow.INPUT_METHOD_NOT_NEEDED);
+        popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT)); popup.setAnimationStyle(0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            popup.setEnterTransition(null); popup.setExitTransition(null);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) popup.setIsClippedToScreen(true);
+        return popup;
+    }
+
+    private void measureHud() {
+        int width = Math.min(dp(390), hudViewportWidth());
+        hudContent.measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(hudViewportHeight(), MeasureSpec.AT_MOST));
+    }
+
     private void placeHud(float x, float y) {
-        View parent = hudContainer();
-        int[] rect = PanelGeometry.fit(hudViewportWidth(), hudViewportHeight(),
-                Math.round(x)-parent.getPaddingLeft(), Math.round(y)-parent.getPaddingTop(),
-                getWidth(), getHeight(), 1, 1);
-        setX(rect[0]+parent.getPaddingLeft()); setY(rect[1]+parent.getPaddingTop());
+        measureHud();
+        int[] rect = PanelGeometry.fit(hudViewportWidth(), hudViewportHeight(), Math.round(x), Math.round(y),
+                hudContent.getMeasuredWidth(), hudContent.getMeasuredHeight(), 1, 1);
+        hudX = rect[0]; hudY = rect[1];
+        View parent = hudContainer(); parent.getLocationInWindow(hudWindowOrigin);
+        int windowX = hudWindowOrigin[0]+parent.getPaddingLeft()+hudX;
+        int windowY = hudWindowOrigin[1]+parent.getPaddingTop()+hudY;
+        if (hudBodyWindow != null && hudBodyWindow.isShowing()) {
+            hudBodyWindow.update(windowX, windowY, rect[2], -1);
+        }
+        if (hudControlsWindow != null && hudControlsWindow.isShowing()) {
+            hudControlsWindow.update(windowX, windowY, rect[2], hudHeaderSpace.getLayoutParams().height);
+        }
+        if (hudCancelPopup != null && hudCancelPopup.isShowing()) hudPassButton.post(() -> {
+            if (hudCancelPopup != null && hudCancelPopup.isShowing()) {
+                hudCancelPopup.update(hudPassButton, 0, -hudPassButton.getHeight(),
+                        Math.max(dp(96), hudPassButton.getWidth()), hudCancelPopup.getHeight());
+            }
+        });
     }
 
     private void restoreHudPosition() {
-        if (getWidth() == 0 || getHeight() == 0) return;
-        View parent = hudContainer();
-        float x = prefs.contains("hud_x") ? parent.getPaddingLeft()+prefs.getFloat("hud_x", 0)*Math.max(0, hudViewportWidth()-getWidth()) : getX();
-        float y = prefs.contains("hud_y") ? parent.getPaddingTop()+prefs.getFloat("hud_y", 0)*Math.max(0, hudViewportHeight()-getHeight()) : getY();
+        measureHud();
+        float x = prefs.contains("hud_x") ? prefs.getFloat("hud_x", 0)*Math.max(0, hudViewportWidth()-hudContent.getMeasuredWidth()) : hudX;
+        float y = prefs.contains("hud_y") ? prefs.getFloat("hud_y", 0)*Math.max(0, hudViewportHeight()-hudContent.getMeasuredHeight()) : hudY;
         placeHud(x, y);
     }
 
     private void saveHudPosition() {
-        View parent = hudContainer();
-        prefs.edit().putFloat("hud_x", (getX()-parent.getPaddingLeft())/Math.max(1, hudViewportWidth()-getWidth()))
-                .putFloat("hud_y", (getY()-parent.getPaddingTop())/Math.max(1, hudViewportHeight()-getHeight())).apply();
+        prefs.edit().putFloat("hud_x", hudX/(float)Math.max(1, hudViewportWidth()-hudContent.getMeasuredWidth()))
+                .putFloat("hud_y", hudY/(float)Math.max(1, hudViewportHeight()-hudContent.getMeasuredHeight())).apply();
+    }
+
+    private void hideHudWindows() {
+        if (hudPassThrough) setHudPassThrough(false);
+        PopupWindow controls = hudControlsWindow, body = hudBodyWindow;
+        hudControlsWindow = hudBodyWindow = null;
+        if (controls != null) controls.dismiss();
+        if (body != null) body.dismiss();
+    }
+
+    private void syncHudWindows() {
+        if (hudContent == null || getWindowToken() == null || !isShown() || getWindowVisibility() != VISIBLE) {
+            hideHudWindows(); return;
+        }
+        if (hudViewportWidth() <= 1 || hudViewportHeight() <= 1) return;
+        if (hudBodyWindow != null && hudBodyWindow.isShowing() && hudControlsWindow != null && hudControlsWindow.isShowing()) {
+            placeHud(hudX, hudY); return;
+        }
+        hideHudWindows(); measureHud(); restoreHudPosition();
+        PopupWindow body = hudWindow(hudContent, hudContent.getMeasuredWidth(), ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        PopupWindow controls = hudWindow(hudHeader, hudContent.getMeasuredWidth(), hudHeaderSpace.getLayoutParams().height, true);
+        hudBodyWindow = body; hudControlsWindow = controls;
+        body.setOnDismissListener(() -> { if (hudBodyWindow == body) hideHudWindows(); });
+        controls.setOnDismissListener(() -> { if (hudControlsWindow == controls) hideHudWindows(); });
+        int gravity = Gravity.TOP | Gravity.getAbsoluteGravity(Gravity.START, View.LAYOUT_DIRECTION_LTR);
+        View parent = hudContainer(); parent.getLocationInWindow(hudWindowOrigin);
+        int x = hudWindowOrigin[0]+parent.getPaddingLeft()+hudX, y = hudWindowOrigin[1]+parent.getPaddingTop()+hudY;
+        try {
+            body.showAtLocation(activityRoot, gravity, x, y);
+            controls.showAtLocation(activityRoot, gravity, x, y);
+        }
+        catch (WindowManager.BadTokenException e) { hideHudWindows(); }
     }
 
     private void restoreDashboardBounds() {
@@ -381,7 +489,7 @@ public final class PerformanceOverlayView extends LinearLayout {
                         WindowManager.LayoutParams p = dashboard.getWindow().getAttributes();
                         x = p.x; y = p.y; width = p.width; height = p.height;
                     }
-                    else { x = (int)getX(); y = (int)getY(); width = getWidth(); height = getHeight(); }
+                    else { x = hudX; y = hudY; width = hudContent.getMeasuredWidth(); height = hudContent.getMeasuredHeight(); }
                     return true;
                 }
                 if (event.getActionMasked() == MotionEvent.ACTION_MOVE && pointer >= 0) {
@@ -569,7 +677,7 @@ public final class PerformanceOverlayView extends LinearLayout {
                 .setView(scroll).setNegativeButton(android.R.string.cancel, null)
                 .setNeutralButton(R.string.diag_defaults, (d, w) -> {
                     prefs.edit().clear().apply();
-                    placeHud(hudContainer().getPaddingLeft()+dp(10), hudContainer().getPaddingTop()+dp(10));
+                    placeHud(dp(10), dp(10));
                     applySettings();
                 })
                 .setPositiveButton(R.string.diag_apply, (d, w) -> {
@@ -609,52 +717,70 @@ public final class PerformanceOverlayView extends LinearLayout {
             reflowCharts();
             dashboardGrid.post(() -> reflowCharts());
         }
-        requestLayout();
+        hudContent.requestLayout(); syncHudWindows();
     }
 
     @Override
-    protected void onMeasure(int widthSpec, int heightSpec) {
-        int width = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED ? dp(390) :
-                Math.min(MeasureSpec.getSize(widthSpec), dp(390));
-        int height = MeasureSpec.getMode(heightSpec) == MeasureSpec.UNSPECIFIED ? dp(2000) : MeasureSpec.getSize(heightSpec);
-        int line = Math.max(1, hudText.getLineHeight()+dp(1));
-        int header = dp(48);
-        for (int i = 0; i < hudHeader.getChildCount(); i++) {
-            View child = hudHeader.getChildAt(i);
-            if (child instanceof Button) header = Math.max(header, ((Button)child).getLineHeight()*2+dp(4));
+    protected void onMeasure(int widthSpec, int heightSpec) { setMeasuredDimension(0, 0); }
+
+    @Override
+    protected void onVisibilityChanged(View changed, int visibility) {
+        super.onVisibilityChanged(changed, visibility);
+        post(() -> syncHudWindows());
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        post(() -> syncHudWindows());
+    }
+
+    private final class HudContent extends LinearLayout {
+        HudContent(Context context) { super(context); }
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED ? dp(390) :
+                    Math.min(MeasureSpec.getSize(widthSpec), dp(390));
+            int height = Math.min(hudViewportHeight(), MeasureSpec.getMode(heightSpec) == MeasureSpec.UNSPECIFIED ?
+                    hudViewportHeight() : MeasureSpec.getSize(heightSpec));
+            int line = Math.max(1, hudText.getLineHeight()+dp(1));
+            int header = dp(48);
+            for (int i = 0; i < hudHeader.getChildCount(); i++) {
+                View child = hudHeader.getChildAt(i);
+                if (child instanceof Button) header = Math.max(header, ((Button)child).getLineHeight()*2+dp(4));
+            }
+            int[] plan = HudLayout.plan(height, getPaddingTop()+getPaddingBottom()+dp(4), header, line,
+                    compact ? 4 : 10, dp(76), dp(60));
+            ViewGroup.LayoutParams headerParams = hudHeaderSpace.getLayoutParams(); headerParams.height = plan[0];
+            body.setVisibility(hudExpanded && plan[1] > 0 ? VISIBLE : GONE);
+            if (hudText.getMaxLines() != Math.max(1, plan[1])) hudText.setMaxLines(Math.max(1, plan[1]));
+            boolean limited = plan[2] < 2;
+            if (limited != hudSpaceLimited) { hudSpaceLimited = limited; updateText(); }
+            hudNetwork.setVisibility(plan[2] >= 1 ? VISIBLE : GONE);
+            hudInput.setVisibility(plan[2] >= 2 ? VISIBLE : GONE);
+            hudNetwork.getLayoutParams().height = plan[3]; hudInput.getLayoutParams().height = plan[3];
+            // Exact width prevents weighted header buttons/graphs shrinking independently.
+            super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST));
         }
-        int[] plan = HudLayout.plan(height, getPaddingTop()+getPaddingBottom()+dp(4), header, line,
-                compact ? 4 : 10, dp(76), dp(60));
-        ViewGroup.LayoutParams headerParams = hudHeader.getLayoutParams(); headerParams.height = plan[0];
-        body.setVisibility(hudExpanded && plan[1] > 0 ? VISIBLE : GONE);
-        if (hudText.getMaxLines() != Math.max(1, plan[1])) hudText.setMaxLines(Math.max(1, plan[1]));
-        boolean limited = plan[2] < 2;
-        if (limited != hudSpaceLimited) { hudSpaceLimited = limited; updateText(); }
-        hudNetwork.setVisibility(plan[2] >= 1 ? VISIBLE : GONE);
-        hudInput.setVisibility(plan[2] >= 2 ? VISIBLE : GONE);
-        hudNetwork.getLayoutParams().height = plan[3]; hudInput.getLayoutParams().height = plan[3];
-        // Exact width prevents weighted header buttons/graphs shrinking independently.
-        super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), heightSpec);
+
+        @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            PerformanceOverlayView.this.post(() -> placeHud(hudX, hudY));
+        }
     }
 
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         activityRoot = getRootView(); activityRoot.addOnLayoutChangeListener(rootLayoutListener);
-        post(() -> restoreHudPosition());
-    }
-
-    @Override
-    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh);
-        // Folding or changing text height should clamp the current location, not jump
-        // to a different saved fraction of the now-larger free space.
-        post(() -> placeHud(getX(), getY()));
+        post(() -> { syncHudWindows(); restoreHudPosition(); });
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        cancelPassThrough();
+        cancelPassThrough(); hideHudWindows();
         if (activityRoot != null) activityRoot.removeOnLayoutChangeListener(rootLayoutListener);
         if (optionPicker != null) optionPicker.dismiss();
         if (settings != null) settings.dismiss();
