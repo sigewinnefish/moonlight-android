@@ -11,8 +11,8 @@ public final class PanelGeometry {
     }
 
     public static int columns(float widthDp, int requested) {
-        if (requested >= 1 && requested <= 3) return requested;
-        return widthDp >= 760 ? 3 : widthDp >= 420 ? 2 : 1;
+        if (requested >= 1 && requested <= 4) return requested;
+        return widthDp >= 1040 ? 4 : widthDp >= 760 ? 3 : widthDp >= 420 ? 2 : 1;
     }
 
     private PanelGeometry() {}

@@ -96,6 +96,9 @@ public final class DiagnosticsTest {
         check(panel[0] == 0 && panel[1] == 0 && panel[2] == 1 && panel[3] == 1);
         check(PanelGeometry.columns(419, 0) == 1 && PanelGeometry.columns(420, 0) == 2);
         check(PanelGeometry.columns(759, 0) == 2 && PanelGeometry.columns(760, 0) == 3);
+        check(PanelGeometry.columns(1039, 0) == 3 && PanelGeometry.columns(1040, 0) == 4);
+        check(PanelGeometry.columns(2000, 0) == 4 && PanelGeometry.columns(300, 4) == 4);
+        check(PanelGeometry.columns(2000, 3) == 3 && PanelGeometry.columns(300, 5) == 1);
         check(PanelGeometry.columns(300, 3) == 3 && PanelGeometry.columns(1000, 1) == 1);
         for (int vw = 1; vw <= 1000; vw += 37) {
             panel = PanelGeometry.fit(vw, 500, 10000, -5000, 700, 600, 260, 160);

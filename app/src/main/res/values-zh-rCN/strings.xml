@@ -444,6 +444,7 @@
         <item>1列</item>
         <item>2列</item>
         <item>3列</item>
+        <item>4列</item>
     </string-array>
     <string name="diag_hud_space_limited">空间不足，完整数据请展开面板查看\n%1$s</string>
     <string name="diag_passthrough">透传</string>

@@ -122,6 +122,7 @@ public final class FrameTimingTest {
             boolean charts = false, series = false;
             for (int i = 0; i < arrays.getLength(); i++) {
                 var array = (org.w3c.dom.Element)arrays.item(i);
+                if (array.getAttribute("name").equals("diag_column_options")) check(array.getElementsByTagName("item").getLength() == 5);
                 if (array.getAttribute("name").equals("diag_chart_names")) { check(array.getElementsByTagName("item").getLength() == DiagnosticCharts.GROUPS.length); charts = true; }
                 if (array.getAttribute("name").equals("diag_series_names")) { check(array.getElementsByTagName("item").getLength() == DiagnosticCharts.SERIES); series = true; }
             }

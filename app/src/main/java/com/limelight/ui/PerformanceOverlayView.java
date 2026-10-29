@@ -664,7 +664,7 @@ public final class PerformanceOverlayView extends LinearLayout {
         Spinner duration = choice(panel, R.string.diag_history_setting,
                 new String[]{"30 s", "60 s", "180 s", "300 s"}, selected(HISTORY_SECONDS, historySeconds));
         Spinner columns = choice(panel, R.string.diag_columns,
-                getResources().getStringArray(R.array.diag_column_options), Math.max(0, Math.min(3, prefs.getInt("columns", 0))));
+                getResources().getStringArray(R.array.diag_column_options), Math.max(0, Math.min(4, prefs.getInt("columns", 0))));
         Spinner refresh = choice(panel, R.string.diag_refresh_setting,
                 new String[]{"100 ms", "250 ms", "500 ms", "1000 ms", "2000 ms"}, selected(REFRESH_MS, refreshMs));
         CheckBox brief = new CheckBox(getContext()); brief.setText(R.string.diag_compact_setting);

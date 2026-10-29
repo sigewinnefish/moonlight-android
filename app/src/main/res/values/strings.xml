@@ -463,6 +463,7 @@
         <item>1 column</item>
         <item>2 columns</item>
         <item>3 columns</item>
+        <item>4 columns</item>
     </string-array>
     <string name="diag_hud_space_limited">Limited space · open Dashboard for all data\n%1$s</string>
     <string name="diag_passthrough">Pass through</string>
