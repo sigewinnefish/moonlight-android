@@ -412,6 +412,7 @@ public class MoonBridge {
 
     public static native void setTouchDiagnosticsEnabled(boolean enabled);
     public static native long[] getTouchDiagnostics();
+    public static native double[] getNetworkDiagnostics();
 
     public static native String getLaunchUrlQueryParameters();
 

@@ -318,7 +318,6 @@
     <string name="diag_unfold">Show</string>
     <string name="diag_open_dashboard">Dashboard</string>
     <string name="diag_settings">Settings</string>
-    <string name="diag_dashboard_title">Live streaming diagnostics</string>
     <string name="diag_close">Close</string>
     <string name="diag_pause">Freeze</string>
     <string name="diag_resume">Resume</string>
@@ -332,7 +331,6 @@
     <string name="diag_chart_selection">Charts shown in dashboard</string>
     <string name="diag_defaults">Defaults</string>
     <string name="diag_apply">Apply</string>
-    <string name="diag_dashboard_help">Scroll for all charts. Freeze to inspect a spike. Touch dispatch and submit timings are local; no host touch acknowledgement is measured. Opening this panel cancels active remote contacts.</string>
     <string name="diag_hud_summary">RTT %1$.1f ms · Render %2$.1f FPS\nTouch P95/peak %3$.1f / %4$.1f ms\nSubmit peak %5$.2f ms · Errors %6$d</string>
     <string-array name="diag_chart_names">
         <item>Network RTT and variation</item>
@@ -349,6 +347,21 @@
         <item>Touch queue wait / oldest age</item>
         <item>Pending touch handoffs</item>
         <item>Control transport call duration</item>
+        <item>RTP ingress bitrate (post-validation)</item>
+        <item>RTP input packet rate</item>
+        <item>RTP delivery gap peak</item>
+        <item>Video late / duplicate / sequence jump</item>
+        <item>Video FEC repair / deficits / failed blocks</item>
+        <item>Audio FEC recovered / failed</item>
+        <item>Audio late / invalid packets</item>
+        <item>Control UDP payload throughput</item>
+        <item>Control reliable loss estimate</item>
+        <item>Control reliable bytes in flight</item>
+        <item>Control UDP datagram rate</item>
+        <item>Time since last RTP delivery</item>
+        <item>Audio data / FEC packet rate</item>
+        <item>Wi-Fi RSSI (~5s sampling)</item>
+        <item>Wi-Fi negotiated rate (not throughput)</item>
     </string-array>
     <string-array name="diag_series_names">
         <item>RTT</item>
@@ -376,8 +389,51 @@
         <item>Pending</item>
         <item>Call peak</item>
         <item>Cancels</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Late incl. dup</item>
+        <item>Dup (1024 window)</item>
+        <item>Repaired pkt</item>
+        <item>Failed block</item>
+        <item>Missing data</item>
+        <item>Repaired pkt</item>
+        <item>Failed event</item>
+        <item>Late</item>
+        <item>Invalid</item>
+        <item>Invalid FEC</item>
+        <item>TX</item>
+        <item>RX</item>
+        <item>Reliable loss</item>
+        <item>In flight</item>
+        <item>TX</item>
+        <item>RX</item>
+        <item>Video</item>
+        <item>Audio</item>
+        <item>Data</item>
+        <item>FEC</item>
+        <item>Jump hints</item>
+        <item>RSSI</item>
+        <item>Link rate</item>
     </string-array>
     <string name="diag_unit_count">count</string>
     <string name="diag_touch_path">MOVE/s Android/native request/control handoff: %1$.0f / %2$.0f / %3$.0f\nPending: %4$d | oldest: %5$.1f ms\nWait/control-call peak: %6$.1f / %7$.1f ms\nControl/request errors: %8$d / %9$d | trace overflow: %10$d | cancels: %11$d</string>
     <string name="diag_touch_trace_unknown">Touch handoff trace unavailable/overflow: queue diagnosis is inconclusive.</string>
+    <string name="diag_network_metrics">RTP video/audio: %1$.2f / %2$.2f Mbps | %3$.0f / %4$.0f pkt/s\nDelivery gap peaks: %5$.2f / %6$.2f ms\nVideo FEC repaired/failed/missing: %7$.1f pkt / %8$.1f block / %9$.1f pkt per s\nAudio repaired/failed/late: %10$.1f / %11$.1f / %12$.1f per s\nControl TX/RX: %13$.3f / %14$.3f Mbps\nReliable loss estimate: %15$.2f%% | in flight: %16$.0f B\nControl metric age: %17$.0f ms</string>
+    <string name="diag_network_limits">RTP ingress excludes rejected-before-queue packets and wire headers. Sequence jumps are not final packet loss. Control statistics are aggregate, not touch-channel ACKs.</string>
+    <string name="diag_drag">Drag panel</string>
+    <string name="diag_drag_title">⠿  Live diagnostics · drag here</string>
+    <string name="diag_resize">Drag to resize  ↘</string>
+    <string name="diag_detail_text">Details</string>
+    <string name="diag_columns">Chart grid columns</string>
+    <string name="diag_floating_help">Drag the title to move; drag the bottom edge to resize. Charts reflow with width.</string>
+    <string-array name="diag_column_options">
+        <item>Auto</item>
+        <item>1 column</item>
+        <item>2 columns</item>
+        <item>3 columns</item>
+    </string-array>
 </resources>

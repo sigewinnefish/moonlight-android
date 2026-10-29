@@ -1,6 +1,7 @@
 import com.limelight.diagnostics.LatencyWindow;
 import com.limelight.diagnostics.TrendHistory;
 import com.limelight.diagnostics.DiagnosticCharts;
+import com.limelight.diagnostics.PanelGeometry;
 import com.limelight.diagnostics.VideoDiagnosticWindow;
 
 public final class DiagnosticsTest {
@@ -48,6 +49,8 @@ public final class DiagnosticsTest {
         check(DiagnosticCharts.upperBound(Float.NaN) == 1);
         check(DiagnosticCharts.upperBound(.12f) >= .12f && DiagnosticCharts.upperBound(.12f) < 1);
         check(DiagnosticCharts.upperBound(123) == 200);
+        check(DiagnosticCharts.UNITS.length == DiagnosticCharts.GROUPS.length);
+        check(DiagnosticCharts.UNITS[27].equals("dBm"));
         boolean[] covered = new boolean[DiagnosticCharts.SERIES];
         for (int[] group : DiagnosticCharts.GROUPS) {
             for (int series : group) { check(series >= 0 && series < covered.length); covered[series] = true; }
@@ -84,6 +87,23 @@ public final class DiagnosticsTest {
         TrendHistory full = new TrendHistory(1, 3000);
         for (int i = 0; i < 3500; i++) full.addAt(i * 100L, i);
         check(full.size() == 3000 && full.time(0) == 50000 && full.get(0, 2999) == 3499);
+        int[] panel = PanelGeometry.fit(1000, 500, 900, -100, 400, 300, 260, 160);
+        check(panel[0] == 600 && panel[1] == 0 && panel[2] == 400 && panel[3] == 300);
+        panel = PanelGeometry.fit(300, 120, 500, 500, 100, 10, 260, 160);
+        check(panel[0] == 40 && panel[1] == 0 && panel[2] == 260 && panel[3] == 120);
+        panel = PanelGeometry.fit(0, 0, -10, -10, 1000, 1000, 260, 160);
+        check(panel[0] == 0 && panel[1] == 0 && panel[2] == 1 && panel[3] == 1);
+        check(PanelGeometry.columns(419, 0) == 1 && PanelGeometry.columns(420, 0) == 2);
+        check(PanelGeometry.columns(759, 0) == 2 && PanelGeometry.columns(760, 0) == 3);
+        check(PanelGeometry.columns(300, 3) == 3 && PanelGeometry.columns(1000, 1) == 1);
+        for (int vw = 1; vw <= 1000; vw += 37) {
+            panel = PanelGeometry.fit(vw, 500, 10000, -5000, 700, 600, 260, 160);
+            check(panel[0] >= 0 && panel[1] >= 0 && panel[0]+panel[2] <= vw && panel[1]+panel[3] <= 500);
+        }
+        check(DiagnosticCharts.formatValue(0, java.util.Locale.US).equals("0"));
+        check(DiagnosticCharts.formatValue(Float.NaN, java.util.Locale.US).equals("—"));
+        check(Float.parseFloat(DiagnosticCharts.formatValue(.00021f, java.util.Locale.US)) > 0);
+        check(DiagnosticCharts.formatValue(-67, java.util.Locale.US).equals("-67.0"));
         System.out.println("PASS: " + checks + " diagnostics assertions");
     }
 }

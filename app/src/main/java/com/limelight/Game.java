@@ -164,6 +164,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private long diagnosticLastTickMs;
     private long diagnosticExpectedTickMs;
     private volatile String diagnosticNetworkText;
+    private volatile float diagnosticWifiRssi = Float.NaN, diagnosticWifiLink = Float.NaN;
     private java.util.concurrent.ScheduledExecutorService diagnosticNetworkPoller;
     private final Runnable diagnosticTick = new Runnable() {
         @Override
@@ -2809,6 +2810,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @SuppressWarnings("deprecation")
     private String diagnosticNetwork() {
+        float rssi = Float.NaN, linkRate = Float.NaN;
         try {
             ConnectivityManager manager = (ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
             android.net.NetworkInfo network = manager.getActiveNetworkInfo();
@@ -2818,6 +2820,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 android.net.wifi.WifiInfo wifi = ((WifiManager)getApplicationContext()
                         .getSystemService(WIFI_SERVICE)).getConnectionInfo();
                 if (wifi != null && wifi.getRssi() > -127 && wifi.getLinkSpeed() > 0) {
+                    rssi = wifi.getRssi();
+                    linkRate = wifi.getLinkSpeed();
                     name += String.format(java.util.Locale.getDefault(), "  %d dBm / %d MHz / %d Mbps",
                             wifi.getRssi(), wifi.getFrequency(), wifi.getLinkSpeed());
                 }
@@ -2826,6 +2830,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
         catch (SecurityException e) {
             return getString(R.string.diag_network_unknown);
+        }
+        finally {
+            diagnosticWifiRssi = rssi;
+            diagnosticWifiLink = linkRate;
         }
     }
 
@@ -2866,6 +2874,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 diagnosticMoveEvents * 1000f / interval, touch[1] * 1000f / interval,
                 touch[3] * 1000f / interval, touch[5], queueAge,
                 queueWait, touch[7] / 1000f, touch[8], touch[9], touch[10], diagnosticTouchCancels)).append('\n');
+        double[] net = MoonBridge.getNetworkDiagnostics();
+        if (net == null) {
+            net = new double[32];
+            java.util.Arrays.fill(net, Double.NaN);
+        }
+        text.append(getString(R.string.diag_network_metrics,
+                net[0], net[1], net[2], net[3], net[4], net[5],
+                net[8], net[9], net[10], net[13], net[14], net[15],
+                net[17], net[18], net[21], net[22], net[23])).append('\n');
+        text.append(getString(R.string.diag_network_limits)).append('\n');
         text.append(getString(R.string.diag_limits));
         performanceOverlayView.update(text.toString(), now, new float[] {
                 rtt, jitter, fresh ? video.frameGapMaxMs : Float.NaN,
@@ -2876,7 +2894,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 fresh ? video.hostMs : Float.NaN, diagnosticSendErrors, tickDelay, diagnosticContacts,
                 diagnosticMoveEvents * 1000f / interval, touch[1] * 1000f / interval,
                 touch[3] * 1000f / interval, queueWait, queueAge,
-                traceValid ? touch[5] : Float.NaN, touch[7] / 1000f, diagnosticTouchCancels});
+                traceValid ? touch[5] : Float.NaN, touch[7] / 1000f, diagnosticTouchCancels,
+                (float)net[0], (float)net[1], (float)net[2], (float)net[3], (float)net[4], (float)net[5],
+                (float)net[6], (float)net[7], (float)net[8], (float)net[9], (float)net[10],
+                (float)net[13], (float)net[14], (float)net[15], (float)net[16], (float)net[27],
+                (float)net[17], (float)net[18], (float)net[21], (float)net[22], (float)net[19], (float)net[20],
+                (float)net[29], (float)net[30], (float)net[11], (float)net[12], (float)net[31],
+                diagnosticWifiRssi, diagnosticWifiLink});
         diagnosticMoveEvents = diagnosticTouchCancels = 0;
         diagnosticSendErrors = diagnosticUnsupported = 0;
     }

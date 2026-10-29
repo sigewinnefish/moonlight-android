@@ -42,6 +42,8 @@ LOCAL_SRC_FILES := moonlight-common-c/src/AudioStream.c \
                    moonlight-common-c/enet/win32.c \
                    simplejni.c \
                    touch_diagnostics.c \
+                   network_diagnostics.c \
+                   network_observer.c \
                    callbacks.c \
                    minisdl.c \
 
@@ -60,7 +62,7 @@ endif
 LOCAL_LDLIBS := -llog
 
 LOCAL_STATIC_LIBRARIES := libopus libcrypto cpufeatures
-LOCAL_LDFLAGS += -Wl,--exclude-libs,ALL -Wl,--wrap=sendInputPacketOnControlStream
+LOCAL_LDFLAGS += -Wl,--exclude-libs,ALL -Wl,--wrap=sendInputPacketOnControlStream -Wl,--wrap=RtpvAddPacket -Wl,--wrap=RtpaAddPacket -Wl,--wrap=connectionSendFrameFecStatus -Wl,--wrap=enet_host_service
 
 LOCAL_BRANCH_PROTECTION := standard
 

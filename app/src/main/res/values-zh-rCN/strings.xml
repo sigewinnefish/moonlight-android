@@ -299,7 +299,6 @@
     <string name="diag_unfold">显示</string>
     <string name="diag_open_dashboard">展开面板</string>
     <string name="diag_settings">设置</string>
-    <string name="diag_dashboard_title">高级串流诊断</string>
     <string name="diag_close">关闭</string>
     <string name="diag_pause">冻结图表</string>
     <string name="diag_resume">继续采样</string>
@@ -313,7 +312,6 @@
     <string name="diag_chart_selection">详细面板显示的图表</string>
     <string name="diag_defaults">恢复默认</string>
     <string name="diag_apply">应用</string>
-    <string name="diag_dashboard_help">向下滚动查看所有图表；冻结后可观察尖峰。事件等待与提交耗时均为客户端数据，不代表主机触控确认。打开面板会取消正在发送的远端触点。</string>
     <string name="diag_hud_summary">RTT %1$.1f ms · 渲染 %2$.1f FPS\n触摸等待P95/峰值 %3$.1f / %4$.1f ms\n提交峰值 %5$.2f ms · 失败 %6$d</string>
     <string-array name="diag_chart_names">
         <item>网络RTT与波动</item>
@@ -330,6 +328,21 @@
         <item>触控队列等待与最老年龄</item>
         <item>待移交触控数量</item>
         <item>控制传输调用耗时</item>
+        <item>RTP输入码率（校验/解密后）</item>
+        <item>RTP输入包速率</item>
+        <item>RTP交付间隔峰值</item>
+        <item>视频后到、重复与序号前跳</item>
+        <item>视频FEC恢复、缺口与失败块</item>
+        <item>音频FEC恢复与失败</item>
+        <item>音频后到与无效包</item>
+        <item>控制连接UDP载荷吞吐量</item>
+        <item>控制可靠包丢失估计</item>
+        <item>控制连接待确认字节</item>
+        <item>控制连接UDP包速率</item>
+        <item>距上次RTP交付时间</item>
+        <item>音频数据与FEC包速率</item>
+        <item>Wi-Fi信号（约5秒采样）</item>
+        <item>Wi-Fi协商速率（非吞吐量）</item>
     </string-array>
     <string-array name="diag_series_names">
         <item>RTT</item>
@@ -357,8 +370,51 @@
         <item>待移交</item>
         <item>调用峰值</item>
         <item>取消</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>后到含重复</item>
+        <item>重复(1024窗)</item>
+        <item>恢复包</item>
+        <item>失败块</item>
+        <item>缺口包</item>
+        <item>恢复包</item>
+        <item>失败事件</item>
+        <item>后到</item>
+        <item>无效包</item>
+        <item>无效FEC</item>
+        <item>发送</item>
+        <item>接收</item>
+        <item>可靠包估计</item>
+        <item>待确认</item>
+        <item>发送</item>
+        <item>接收</item>
+        <item>视频</item>
+        <item>音频</item>
+        <item>数据包</item>
+        <item>FEC包</item>
+        <item>前跳缺口</item>
+        <item>RSSI</item>
+        <item>协商速率</item>
     </string-array>
     <string name="diag_unit_count">个/次</string>
     <string name="diag_touch_path">MOVE/秒 Android/原生请求/控制移交：%1$.0f / %2$.0f / %3$.0f\n待移交：%4$d | 最老等待：%5$.1f ms\n等待/控制调用峰值：%6$.1f / %7$.1f ms\n控制/请求失败：%8$d / %9$d | 跟踪溢出：%10$d | 触控取消：%11$d</string>
     <string name="diag_touch_trace_unknown">触控跟踪不可用或溢出：队列数据无法用于判定卡顿。</string>
+    <string name="diag_network_metrics">RTP视频/音频：%1$.2f / %2$.2f Mbps | %3$.0f / %4$.0f 包/秒\nRTP交付间隔峰值：%5$.2f / %6$.2f ms\n视频FEC恢复/失败/缺口：%7$.1f 包 / %8$.1f 块 / %9$.1f 包每秒\n音频恢复/失败/后到：%10$.1f / %11$.1f / %12$.1f 每秒\n控制发送/接收：%13$.3f / %14$.3f Mbps\n可靠包丢失估计：%15$.2f%% | 待确认：%16$.0f B\n控制统计距今：%17$.0f ms</string>
+    <string name="diag_network_limits">RTP输入不含入队前拒绝的包及链路头；序号前跳不等于最终丢包。控制数据为整体连接统计，非触控通道确认。</string>
+    <string name="diag_drag">拖动面板</string>
+    <string name="diag_drag_title">⠿  实时诊断 · 拖动标题移动</string>
+    <string name="diag_resize">拖动此处调整大小  ↘</string>
+    <string name="diag_detail_text">文字数据</string>
+    <string name="diag_columns">图表网格列数</string>
+    <string name="diag_floating_help">拖动标题可移动，拖动底部可缩放；图表随窗口宽度自动排版。</string>
+    <string-array name="diag_column_options">
+        <item>自动</item>
+        <item>1列</item>
+        <item>2列</item>
+        <item>3列</item>
+    </string-array>
 </resources>
