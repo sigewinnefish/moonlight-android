@@ -16,6 +16,8 @@ import com.limelight.binding.input.touch.TouchContext;
 import com.limelight.binding.input.virtual_controller.VirtualController;
 import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
+import com.limelight.diagnostics.FrameTimingWindow;
+import com.limelight.diagnostics.DiagnosticCharts;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.PerfSample;
@@ -2851,6 +2853,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         long interval = Math.max(1, now - diagnosticLastTickMs);
         long tickDelay = Math.max(0, now - diagnosticExpectedTickMs);
         diagnosticLastTickMs = now;
+        long frameNowNs = System.nanoTime();
+        FrameTimingWindow.Sample frames = decoderRenderer.getFrameTimingSample(frameNowNs);
+        performanceOverlayView.recordFrameTimings(frames, now, frameNowNs);
+        float[] ft = frames.values;
         float[] input = diagnosticInputAge.drain();
         float[] submit = diagnosticSubmit.drain();
         PerfSample video = diagnosticVideoSample;
@@ -2893,6 +2899,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 net[8], net[9], net[10], net[13], net[14], net[15],
                 net[17], net[18], net[21], net[22], net[23])).append('\n');
         text.append(getString(R.string.diag_network_limits)).append('\n');
+        text.append(getString(R.string.diag_frame_summary,
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.PRESENT_P95], java.util.Locale.getDefault()),
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.PRESENT_P99], java.util.Locale.getDefault()),
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.PRESENT_PEAK], java.util.Locale.getDefault()),
+                DiagnosticCharts.formatValue(ft[FrameTimingWindow.BUDGET], java.util.Locale.getDefault()))).append('\n');
+        if (!decoderRenderer.hasFrameTimingCallbacks()) text.append(getString(R.string.diag_frame_unavailable)).append('\n');
+        text.append(getString(R.string.diag_frame_limits)).append('\n');
         text.append(getString(R.string.diag_limits));
         performanceOverlayView.update(text.toString(), now, new float[] {
                 rtt, jitter, fresh ? video.frameGapMaxMs : Float.NaN,
@@ -2909,7 +2922,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 (float)net[13], (float)net[14], (float)net[15], (float)net[16], (float)net[27],
                 (float)net[17], (float)net[18], (float)net[21], (float)net[22], (float)net[19], (float)net[20],
                 (float)net[29], (float)net[30], (float)net[11], (float)net[12], (float)net[31],
-                diagnosticWifiRssi, diagnosticWifiLink});
+                diagnosticWifiRssi, diagnosticWifiLink,
+                ft[FrameTimingWindow.PRESENT_LAST], ft[FrameTimingWindow.BUDGET],
+                ft[FrameTimingWindow.PRESENT_P95], ft[FrameTimingWindow.PRESENT_P99], ft[FrameTimingWindow.PRESENT_PEAK],
+                ft[FrameTimingWindow.SUBMIT_P95], ft[FrameTimingWindow.SUBMIT_PEAK],
+                ft[FrameTimingWindow.PACING_P95], ft[FrameTimingWindow.SURFACE_P95], ft[FrameTimingWindow.PRESENT_FPS],
+                ft[FrameTimingWindow.SLOW], ft[FrameTimingWindow.SEVERE], ft[FrameTimingWindow.EXCESS_PERCENT],
+                ft[FrameTimingWindow.PRESENT_IDLE], ft[FrameTimingWindow.CALLBACK_IDLE],
+                ft[FrameTimingWindow.CALLBACK_DELAY], ft[FrameTimingWindow.PENDING], ft[FrameTimingWindow.OVERFLOW]});
         diagnosticMoveEvents = diagnosticTouchCancels = 0;
         diagnosticSendErrors = diagnosticUnsupported = 0;
     }

@@ -343,6 +343,16 @@
         <item>音频数据与FEC包速率</item>
         <item>Wi-Fi信号（约5秒采样）</item>
         <item>Wi-Fi协商速率（非吞吐量）</item>
+        <item>逐帧呈现间隔（Frame Time）</item>
+        <item>呈现间隔 P95 / P99 / 峰值</item>
+        <item>显示提交间隔</item>
+        <item>解码后等待 / 提交至呈现</item>
+        <item>呈现时间戳估算帧率</item>
+        <item>慢帧 / 严重卡帧间隔</item>
+        <item>慢帧超预算时间占比</item>
+        <item>呈现 / 回调距今</item>
+        <item>呈现回调投递延迟</item>
+        <item>呈现回调跟踪覆盖</item>
     </string-array>
     <string-array name="diag_series_names">
         <item>RTT</item>
@@ -399,6 +409,24 @@
         <item>前跳缺口</item>
         <item>RSSI</item>
         <item>协商速率</item>
+        <item>逐帧间隔</item>
+        <item>目标帧预算</item>
+        <item>P95</item>
+        <item>P99</item>
+        <item>峰值</item>
+        <item>P95</item>
+        <item>峰值</item>
+        <item>解码→提交P95</item>
+        <item>提交→呈现P95</item>
+        <item>时间戳FPS</item>
+        <item>慢帧(&gt;1.5倍)</item>
+        <item>严重(&gt;3倍且&gt;50ms)</item>
+        <item>超预算占比</item>
+        <item>距呈现</item>
+        <item>距回调</item>
+        <item>投递峰值</item>
+        <item>未匹配回报</item>
+        <item>跟踪缺口</item>
     </string-array>
     <string name="diag_unit_count">个/次</string>
     <string name="diag_touch_path">MOVE/秒 Android/原生请求/控制移交：%1$.0f / %2$.0f / %3$.0f\n待移交：%4$d | 最老等待：%5$.1f ms\n等待/控制调用峰值：%6$.1f / %7$.1f ms\n控制/请求失败：%8$d / %9$d | 跟踪溢出：%10$d | 触控取消：%11$d</string>
@@ -424,4 +452,7 @@
     <string name="diag_no_charts">未选择图表，请在设置中启用需要的图表。</string>
     <string name="diag_opacity_value">小面板背景不透明度：%1$d%%</string>
     <string name="diag_panel_opacity_value">详细窗口不透明度：%1$d%%</string>
+    <string name="diag_frame_summary">呈现间隔P95/P99/峰值：%1$s / %2$s / %3$s ms | 目标预算：%4$s ms</string>
+    <string name="diag_frame_unavailable">呈现回调不可用：只能统计显示提交与帧节奏等待。</string>
+    <string name="diag_frame_limits">Frame Time来自MediaCodec呈现时间戳，非GPU执行时间或物理屏幕扫描。慢帧：&gt;1.5倍预算；严重：&gt;3倍且&gt;50ms。超预算占比仅统计已完成慢间隔。回调缺失/批量投递影响覆盖率，待回报不代表确认丢帧。分位数统计当前采样窗口（至多最近2048次）。</string>
 </resources>

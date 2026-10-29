@@ -14,6 +14,7 @@ import org.jcodec.codecs.h264.io.model.SeqParameterSet;
 import org.jcodec.codecs.h264.io.model.VUIParameters;
 
 import com.limelight.BuildConfig;
+import com.limelight.diagnostics.FrameTimingWindow;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
@@ -73,10 +74,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private boolean reportedCrash;
     private int consecutiveCrashCount;
     private String glRenderer;
-    private boolean foreground = true;
+    private volatile boolean foreground = true;
     private PerfOverlayListener perfListener;
     private final com.limelight.diagnostics.VideoDiagnosticWindow diagnosticVideo =
             new com.limelight.diagnostics.VideoDiagnosticWindow();
+    private final FrameTimingWindow diagnosticFrames = new FrameTimingWindow();
+    private volatile HandlerThread diagnosticFrameThread;
+    private volatile int diagnosticCodecEpoch;
+    private volatile boolean diagnosticCallbacksAvailable;
     private long diagnosticLastSampleMs;
     private String diagnosticText = "";
     private float diagnosticClientMs = Float.NaN;
@@ -437,10 +442,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     public void notifyVideoForeground() {
         foreground = true;
+        if (prefs.enablePerfOverlay) diagnosticFrames.reset();
     }
 
     public void notifyVideoBackground() {
         foreground = false;
+        if (prefs.enablePerfOverlay) diagnosticFrames.reset();
     }
 
     public int getActiveVideoFormat() {
@@ -539,7 +546,40 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         // Start the decoder
         videoDecoder.start();
+        installDiagnosticFrameListener();
+    }
 
+    private void installDiagnosticFrameListener() {
+        if (stopping || !prefs.enablePerfOverlay || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return;
+        final int epoch = ++diagnosticCodecEpoch;
+        diagnosticFrames.reset(); diagnosticFrames.setCallbacksEnabled(false);
+        diagnosticCallbacksAvailable = false;
+        try {
+            if (diagnosticFrameThread == null) {
+                diagnosticFrameThread = new HandlerThread("Video - Frame diagnostics");
+                diagnosticFrameThread.start();
+            }
+            // A dedicated looper keeps UI stalls out of callback delivery timing.
+            // Only observer state is touched here; no MediaCodec calls/recovery locks.
+            videoDecoder.setOnFrameRenderedListener((codec, pts, renderNs) -> {
+                if (!stopping && foreground && epoch == diagnosticCodecEpoch) {
+                    diagnosticFrames.rendered(pts, renderNs, System.nanoTime());
+                }
+            }, new Handler(diagnosticFrameThread.getLooper()));
+            diagnosticFrames.setCallbacksEnabled(true); diagnosticCallbacksAvailable = true;
+        }
+        catch (RuntimeException e) {
+            // Optional telemetry must never prevent decoder startup or streaming.
+            LimeLog.warning("Frame presentation diagnostics unavailable: " + e.getClass().getSimpleName());
+        }
+    }
+
+    public boolean hasFrameTimingCallbacks() { return diagnosticCallbacksAvailable; }
+
+    public FrameTimingWindow.Sample getFrameTimingSample(long nowNs) {
+        diagnosticFrames.setTargetFps(Math.min(refreshRate,
+                activity.getWindowManager().getDefaultDisplay().getRefreshRate()));
+        return diagnosticFrames.drain(nowNs);
     }
 
     private boolean tryConfigureDecoder(MediaCodecInfo selectedDecoderInfo, MediaFormat format, boolean throwOnCodecError) {
@@ -685,6 +725,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         this.initialHeight = height;
         this.videoFormat = format;
         this.refreshRate = redrawRate;
+        diagnosticFrames.setTargetFps(Math.min(redrawRate,
+                activity.getWindowManager().getDefaultDisplay().getRefreshRate()));
 
         return initializeDecoder(false);
     }
@@ -713,12 +755,15 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 nextInputBuffer = null;
                 nextInputBufferIndex = -1;
                 outputBufferQueue.clear();
+                diagnosticCodecEpoch++;
+                diagnosticFrames.reset();
 
                 // If we just need a flush, do so now with all threads quiesced.
                 if (codecRecoveryType.get() == CR_RECOVERY_TYPE_FLUSH) {
                     LimeLog.warning("Flushing decoder");
                     try {
                         videoDecoder.flush();
+                        installDiagnosticFrameListener();
                         codecRecoveryType.set(CR_RECOVERY_TYPE_NONE);
                     } catch (IllegalStateException e) {
                         e.printStackTrace();
@@ -971,12 +1016,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             Integer nextOutputBuffer = outputBufferQueue.poll();
             if (nextOutputBuffer != null) {
                 try {
+                    if (prefs.enablePerfOverlay) diagnosticFrames.released(nextOutputBuffer, System.nanoTime());
                     videoDecoder.releaseOutputBuffer(nextOutputBuffer, frameTimeNanos);
 
                     lastRenderedFrameTimeNanos = frameTimeNanos;
                     activeWindowVideoStats.totalFramesRendered++;
                     if (prefs.enablePerfOverlay) diagnosticVideo.rendered();
                 } catch (IllegalStateException ignored) {
+                    if (prefs.enablePerfOverlay) diagnosticFrames.reset();
                     try {
                         // Try to avoid leaking the output buffer by releasing it without rendering
                         videoDecoder.releaseOutputBuffer(nextOutputBuffer, false);
@@ -1030,6 +1077,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         if (outIndex >= 0) {
                             long presentationTimeUs = info.presentationTimeUs;
                             int lastIndex = outIndex;
+                            if (prefs.enablePerfOverlay) diagnosticFrames.decoded(lastIndex, presentationTimeUs, System.nanoTime());
 
                             numFramesOut++;
 
@@ -1037,14 +1085,17 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             if (prefs.framePacing != PreferenceConfiguration.FRAME_PACING_BALANCED) {
                                 // Get the last output buffer in the queue
                                 while ((outIndex = videoDecoder.dequeueOutputBuffer(info, 0)) >= 0) {
+                                    if (prefs.enablePerfOverlay) diagnosticFrames.discarded(lastIndex);
                                     videoDecoder.releaseOutputBuffer(lastIndex, false);
 
                                     numFramesOut++;
 
                                     lastIndex = outIndex;
                                     presentationTimeUs = info.presentationTimeUs;
+                                    if (prefs.enablePerfOverlay) diagnosticFrames.decoded(lastIndex, presentationTimeUs, System.nanoTime());
                                 }
 
+                                if (prefs.enablePerfOverlay) diagnosticFrames.released(lastIndex, System.nanoTime());
                                 if (prefs.framePacing == PreferenceConfiguration.FRAME_PACING_MAX_SMOOTHNESS ||
                                         prefs.framePacing == PreferenceConfiguration.FRAME_PACING_CAP_FPS) {
                                     // In max smoothness or cap FPS mode, we want to never drop frames
@@ -1071,7 +1122,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 // refresh rate).
                                 if (outputBufferQueue.size() == OUTPUT_BUFFER_QUEUE_LIMIT) {
                                     try {
-                                        videoDecoder.releaseOutputBuffer(outputBufferQueue.take(), false);
+                                        int droppedBuffer = outputBufferQueue.take();
+                                        if (prefs.enablePerfOverlay) diagnosticFrames.discarded(droppedBuffer);
+                                        videoDecoder.releaseOutputBuffer(droppedBuffer, false);
                                     } catch (InterruptedException e) {
                                         // We're shutting down, so we can just drop this buffer on the floor
                                         // and it will be reclaimed when the codec is released.
@@ -1106,6 +1159,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             }
                         }
                     } catch (IllegalStateException e) {
+                        if (prefs.enablePerfOverlay) diagnosticFrames.reset();
                         handleDecoderException(e);
                     } finally {
                         doCodecRecoveryIfRequired(CR_FLAG_RENDER_THREAD);
@@ -1194,6 +1248,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     public void prepareForStop() {
         // Let the decoding code know to ignore codec exceptions now
         stopping = true;
+        diagnosticCodecEpoch++; diagnosticFrames.reset();
+        if (diagnosticFrameThread != null) diagnosticFrameThread.quit();
 
         // Halt the rendering thread
         if (rendererThread != null) {
@@ -1255,6 +1311,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     @Override
     public void cleanup() {
+        diagnosticCodecEpoch++; diagnosticFrames.reset();
+        if (diagnosticFrameThread != null) diagnosticFrameThread.quit();
         videoDecoder.release();
     }
 

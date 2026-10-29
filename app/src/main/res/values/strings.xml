@@ -362,6 +362,16 @@
         <item>Audio data / FEC packet rate</item>
         <item>Wi-Fi RSSI (~5s sampling)</item>
         <item>Wi-Fi negotiated rate (not throughput)</item>
+        <item>Presentation frame time (per frame)</item>
+        <item>Presentation interval P95 / P99 / peak</item>
+        <item>Display submission interval</item>
+        <item>Decoded-to-release / release-to-present</item>
+        <item>FPS from presentation timestamps</item>
+        <item>Slow / severe frame intervals</item>
+        <item>Slow-interval excess time share</item>
+        <item>Presentation / callback idle age</item>
+        <item>Rendered callback delivery delay</item>
+        <item>Presentation callback tracking coverage</item>
     </string-array>
     <string-array name="diag_series_names">
         <item>RTT</item>
@@ -418,6 +428,24 @@
         <item>Jump hints</item>
         <item>RSSI</item>
         <item>Link rate</item>
+        <item>Per-frame interval</item>
+        <item>Target budget</item>
+        <item>P95</item>
+        <item>P99</item>
+        <item>Peak</item>
+        <item>P95</item>
+        <item>Peak</item>
+        <item>Decode→release P95</item>
+        <item>Release→present P95</item>
+        <item>Timestamp FPS</item>
+        <item>Slow (&gt;1.5×)</item>
+        <item>Severe (&gt;3×, &gt;50ms)</item>
+        <item>Excess share</item>
+        <item>Presentation age</item>
+        <item>Callback age</item>
+        <item>Delivery peak</item>
+        <item>Unmatched releases</item>
+        <item>Tracking gaps</item>
     </string-array>
     <string name="diag_unit_count">count</string>
     <string name="diag_touch_path">MOVE/s Android/native request/control handoff: %1$.0f / %2$.0f / %3$.0f\nPending: %4$d | oldest: %5$.1f ms\nWait/control-call peak: %6$.1f / %7$.1f ms\nControl/request errors: %8$d / %9$d | trace overflow: %10$d | cancels: %11$d</string>
@@ -443,4 +471,7 @@
     <string name="diag_no_charts">No charts selected. Enable charts in Settings.</string>
     <string name="diag_opacity_value">HUD background opacity: %1$d%%</string>
     <string name="diag_panel_opacity_value">Dashboard opacity: %1$d%%</string>
+    <string name="diag_frame_summary">Presentation P95/P99/peak: %1$s / %2$s / %3$s ms | budget: %4$s ms</string>
+    <string name="diag_frame_unavailable">Presentation callback unavailable: only submission/pacing timings can be measured.</string>
+    <string name="diag_frame_limits">Frame Time uses MediaCodec presentation timestamps, not GPU execution or physical scanout. Slow: &gt;1.5× budget; severe: &gt;3× and &gt;50 ms. Excess share covers completed slow intervals. Missing/batched callbacks affect coverage; pending callbacks are not confirmed dropped frames. Percentiles cover the sampling interval (up to the latest 2048 events).</string>
 </resources>

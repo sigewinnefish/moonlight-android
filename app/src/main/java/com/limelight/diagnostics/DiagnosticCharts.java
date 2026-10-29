@@ -15,8 +15,13 @@ public final class DiagnosticCharts {
             NET_CONTROL_TX = 41, NET_CONTROL_RX = 42, NET_CONTROL_LOSS = 43, NET_CONTROL_FLIGHT = 44,
             NET_CONTROL_TX_PPS = 45, NET_CONTROL_RX_PPS = 46,
             NET_VIDEO_IDLE = 47, NET_AUDIO_IDLE = 48, NET_AUDIO_DATA = 49, NET_AUDIO_FEC = 50,
-            NET_SEQUENCE_GAPS = 51, WIFI_RSSI = 52, WIFI_LINK = 53;
-    public static final int SERIES = 54;
+            NET_SEQUENCE_GAPS = 51, WIFI_RSSI = 52, WIFI_LINK = 53,
+            PRESENT_LAST = 54, FRAME_BUDGET = 55, PRESENT_P95 = 56, PRESENT_P99 = 57, PRESENT_PEAK = 58,
+            DISPLAY_SUBMIT_P95 = 59, DISPLAY_SUBMIT_PEAK = 60, PACING_P95 = 61, SURFACE_P95 = 62,
+            PRESENT_FPS = 63, SLOW_FRAMES = 64, SEVERE_FRAMES = 65, FRAME_EXCESS = 66,
+            PRESENT_IDLE = 67, CALLBACK_IDLE = 68, CALLBACK_DELAY = 69,
+            PRESENT_PENDING = 70, PRESENT_OVERFLOW = 71;
+    public static final int SERIES = 72, RAW_FRAME_GROUP = 29;
     public static final int[][] GROUPS = {{RTT, VARIATION}, {FRAME_GAP}, {INPUT_P95, INPUT_PEAK},
             {SUBMIT_P95, SUBMIT_PEAK}, {RECEIVE_FPS, RENDER_FPS}, {DECODE, CLIENT, HOST},
             {MBPS}, {LOSS}, {UI_LATE}, {CONTACTS, ERRORS, CANCELS}, {ANDROID_MOVE, NATIVE_MOVE, CONTROL_MOVE},
@@ -26,10 +31,27 @@ public final class DiagnosticCharts {
             {NET_FEC_REC, NET_MISSING, NET_FEC_FAIL}, {NET_AUDIO_REC, NET_AUDIO_FAIL},
             {NET_AUDIO_OOS, NET_AUDIO_BAD, NET_AUDIO_FEC_BAD}, {NET_CONTROL_TX, NET_CONTROL_RX},
             {NET_CONTROL_LOSS}, {NET_CONTROL_FLIGHT}, {NET_CONTROL_TX_PPS, NET_CONTROL_RX_PPS},
-            {NET_VIDEO_IDLE, NET_AUDIO_IDLE}, {NET_AUDIO_DATA, NET_AUDIO_FEC}, {WIFI_RSSI}, {WIFI_LINK}};
+            {NET_VIDEO_IDLE, NET_AUDIO_IDLE}, {NET_AUDIO_DATA, NET_AUDIO_FEC}, {WIFI_RSSI}, {WIFI_LINK},
+            {PRESENT_LAST, FRAME_BUDGET}, {PRESENT_P95, PRESENT_P99, PRESENT_PEAK},
+            {DISPLAY_SUBMIT_P95, DISPLAY_SUBMIT_PEAK}, {PACING_P95, SURFACE_P95}, {PRESENT_FPS},
+            {SLOW_FRAMES, SEVERE_FRAMES}, {FRAME_EXCESS}, {PRESENT_IDLE, CALLBACK_IDLE},
+            {CALLBACK_DELAY}, {PRESENT_PENDING, PRESENT_OVERFLOW}};
     public static final String[] UNITS = {"ms", "ms", "ms", "ms", "FPS", "ms", "Mbps", "%", "ms", "count",
             "/s", "ms", "count", "ms", "Mbps", "/s", "ms", "/s", "/s", "/s", "/s", "Mbps",
-            "%", "B", "/s", "ms", "/s", "dBm", "Mbps"};
+            "%", "B", "/s", "ms", "/s", "dBm", "Mbps", "ms", "ms", "ms", "ms", "FPS", "count", "%", "ms", "ms", "count"};
+
+    public static long migrateSelection(long saved, boolean touchMigrated, boolean networkMigrated, boolean frameMigrated) {
+        if (!touchMigrated) saved |= 15L << 10;
+        if (!networkMigrated) saved |= ((1L << 29)-1) ^ ((1L << 14)-1);
+        if (!frameMigrated) saved |= ((1L << GROUPS.length)-1) ^ ((1L << RAW_FRAME_GROUP)-1);
+        return saved;
+    }
+
+    /** Put newly added frame charts first; original chart IDs/settings stay stable. */
+    public static int displayGroup(int order) {
+        int frames = GROUPS.length-RAW_FRAME_GROUP;
+        return order < frames ? RAW_FRAME_GROUP+order : order-frames;
+    }
 
     public static float upperBound(float peak) {
         if (Float.isNaN(peak) || Float.isInfinite(peak) || peak <= 0) return 1;

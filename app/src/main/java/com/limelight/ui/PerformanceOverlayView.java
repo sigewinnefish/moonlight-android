@@ -34,6 +34,8 @@ import android.widget.TextView;
 import com.limelight.R;
 import com.limelight.diagnostics.DiagnosticCharts;
 import com.limelight.diagnostics.TrendHistory;
+import com.limelight.diagnostics.FrameTimingWindow;
+import com.limelight.diagnostics.FrameTimeHistory;
 import java.util.ArrayList;
 import java.util.Locale;
 
@@ -43,6 +45,7 @@ public final class PerformanceOverlayView extends LinearLayout {
     private static final int[] REFRESH_MS = {100, 250, 500, 1000, 2000};
     private final SharedPreferences prefs;
     private final TrendHistory history = new TrendHistory(DiagnosticCharts.SERIES, 3000);
+    private FrameTimeHistory frameHistory;
     private final ArrayList<Chart> detailCharts = new ArrayList<>();
     private final TextView hudText;
     private final LinearLayout body, hudHeader;
@@ -74,7 +77,8 @@ public final class PerformanceOverlayView extends LinearLayout {
     private Button pause;
     private boolean paused;
     private boolean compact;
-    private int historySeconds, chartMask, opacity;
+    private int historySeconds, opacity;
+    private long chartMask;
     private volatile int refreshMs;
     private long lastUpdateMs;
     private String latestText = "";
@@ -154,9 +158,9 @@ public final class PerformanceOverlayView extends LinearLayout {
     private void loadSettings() {
         historySeconds = prefs.getInt("history", 60);
         refreshMs = prefs.getInt("refresh_v2", 250);
-        chartMask = prefs.getInt("charts", 1023);
-        if (!prefs.contains("touch_charts_v1")) chartMask |= 15 << 10;
-        if (!prefs.contains("network_charts_v1")) chartMask |= ((1 << DiagnosticCharts.GROUPS.length)-1) ^ ((1 << 14)-1);
+        long saved = prefs.contains("charts_v2") ? prefs.getLong("charts_v2", 1023L) : prefs.getInt("charts", 1023);
+        chartMask = DiagnosticCharts.migrateSelection(saved, prefs.contains("touch_charts_v1"),
+                prefs.contains("network_charts_v1"), prefs.contains("frame_charts_v1"));
         opacity = Math.max(30, Math.min(100, prefs.getInt("opacity", 80)));
         panelOpacity = Math.max(30, Math.min(100, prefs.getInt("panel_opacity", 90)));
         if (dashboard != null && dashboard.getWindow() != null) {
@@ -272,6 +276,14 @@ public final class PerformanceOverlayView extends LinearLayout {
     }
 
     public int getRefreshMs() { return refreshMs; }
+
+    public void recordFrameTimings(FrameTimingWindow.Sample sample, long nowMs, long nowNs) {
+        if (paused || sample.timesNs.length == 0) return;
+        if (frameHistory == null) frameHistory = new FrameTimeHistory(120000);
+        for (int i = 0; i < sample.timesNs.length; i++) {
+            frameHistory.add(nowMs-(nowNs-sample.timesNs[i])/1000000L, sample.intervalsMs[i]);
+        }
+    }
 
     public void update(String text, long now, float[] sample) {
         if (paused) return;
@@ -550,7 +562,7 @@ public final class PerformanceOverlayView extends LinearLayout {
         LinearLayout tools = new LinearLayout(getContext());
         pause = button(tools, paused ? R.string.diag_resume : R.string.diag_pause, v -> togglePause());
         button(tools, R.string.diag_reset, v -> {
-            history.clear(); lastUpdateMs = 0;
+            history.clear(); if (frameHistory != null) frameHistory.clear(); lastUpdateMs = 0;
             for (Chart chart : detailCharts) chart.invalidate();
             hudNetwork.invalidate(); hudInput.invalidate();
         });
@@ -567,8 +579,9 @@ public final class PerformanceOverlayView extends LinearLayout {
         emptyChartsNotice = label(10); emptyChartsNotice.setText(R.string.diag_no_charts); rows.addView(emptyChartsNotice);
         dashboardGrid = new GridLayout(getContext()); rows.addView(dashboardGrid, new LayoutParams(-1, -2));
         dashboardColumns = 0; detailCharts.clear();
-        for (int group = 0; group < DiagnosticCharts.GROUPS.length; group++) {
-            if ((chartMask & (1 << group)) != 0) detailCharts.add(new Chart(getContext(), group, false));
+        for (int order = 0; order < DiagnosticCharts.GROUPS.length; order++) {
+            int group = DiagnosticCharts.displayGroup(order);
+            if ((chartMask & (1L << group)) != 0) detailCharts.add(new Chart(getContext(), group, false));
         }
         emptyChartsNotice.setVisibility(detailCharts.isEmpty() ? VISIBLE : GONE);
         dashboardGrid.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -667,9 +680,10 @@ public final class PerformanceOverlayView extends LinearLayout {
         TextView chartLabel = label(14); chartLabel.setText(R.string.diag_chart_selection); panel.addView(chartLabel);
         String[] names = getResources().getStringArray(R.array.diag_chart_names);
         CheckBox[] enabled = new CheckBox[names.length];
-        for (int i = 0; i < names.length; i++) {
+        for (int order = 0; order < names.length; order++) {
+            int i = DiagnosticCharts.displayGroup(order);
             enabled[i] = new CheckBox(getContext()); enabled[i].setText(names[i]);
-            enabled[i].setTextColor(Color.WHITE); enabled[i].setChecked((chartMask & (1 << i)) != 0);
+            enabled[i].setTextColor(Color.WHITE); enabled[i].setChecked((chartMask & (1L << i)) != 0);
             panel.addView(enabled[i]);
         }
         scroll.addView(panel);
@@ -681,11 +695,11 @@ public final class PerformanceOverlayView extends LinearLayout {
                     applySettings();
                 })
                 .setPositiveButton(R.string.diag_apply, (d, w) -> {
-                    int mask = 0;
-                    for (int i = 0; i < enabled.length; i++) if (enabled[i].isChecked()) mask |= 1 << i;
+                    long mask = 0;
+                    for (int i = 0; i < enabled.length; i++) if (enabled[i].isChecked()) mask |= 1L << i;
                     prefs.edit().putInt("history", HISTORY_SECONDS[duration.getSelectedItemPosition()])
                             .putInt("refresh_v2", REFRESH_MS[refresh.getSelectedItemPosition()])
-                            .putInt("charts", mask).putBoolean("touch_charts_v1", true).putBoolean("network_charts_v1", true).putInt("opacity", transparency.getProgress() + 30)
+                            .putLong("charts_v2", mask).putBoolean("frame_charts_v1", true).putBoolean("touch_charts_v1", true).putBoolean("network_charts_v1", true).putInt("opacity", transparency.getProgress() + 30)
                             .putBoolean("compact", brief.isChecked()).putInt("panel_opacity", panelTransparency.getProgress()+30)
                             .putInt("columns", columns.getSelectedItemPosition()).apply();
                     applySettings();
@@ -710,8 +724,9 @@ public final class PerformanceOverlayView extends LinearLayout {
             // Update in place: recreating the dialog races its asynchronous onDismiss
             // callback and also needlessly loses the window geometry and scroll state.
             dashboardGrid.removeAllViews(); detailCharts.clear(); dashboardColumns = 0;
-            for (int group = 0; group < DiagnosticCharts.GROUPS.length; group++) {
-                if ((chartMask & (1 << group)) != 0) detailCharts.add(new Chart(getContext(), group, false));
+            for (int order = 0; order < DiagnosticCharts.GROUPS.length; order++) {
+                int group = DiagnosticCharts.displayGroup(order);
+                if ((chartMask & (1L << group)) != 0) detailCharts.add(new Chart(getContext(), group, false));
             }
             if (emptyChartsNotice != null) emptyChartsNotice.setVisibility(detailCharts.isEmpty() ? VISIBLE : GONE);
             reflowCharts();
@@ -794,9 +809,12 @@ public final class PerformanceOverlayView extends LinearLayout {
         private final boolean small;
         private final int[] colors = {0xff63d9ff, 0xffffcf66, 0xffb2f284};
         private final String[] titles, labels;
+        private final float[] rawMin, rawMax;
 
         Chart(Context context, int group, boolean small) {
             super(context); this.group = group; this.small = small;
+            rawMin = group == DiagnosticCharts.RAW_FRAME_GROUP ? new float[512] : null;
+            rawMax = rawMin == null ? null : new float[512];
             titles = getResources().getStringArray(R.array.diag_chart_names);
             setContentDescription(titles[group]);
             labels = getResources().getStringArray(R.array.diag_series_names);
@@ -807,6 +825,28 @@ public final class PerformanceOverlayView extends LinearLayout {
             return DiagnosticCharts.formatValue(value, Locale.getDefault());
         }
 
+        private void drawRawFrames(Canvas canvas, float left, float right, float top, float bottom, float scale) {
+            paint.setColor(colors[0]);
+            boolean previous = false; float px = 0, py = 0;
+            for (int i = 0; i < rawMin.length; i++) {
+                if (Float.isNaN(rawMin[i])) { previous = false; continue; }
+                float x = left+i*(right-left)/(rawMin.length-1);
+                float y = bottom-rawMax[i]/scale*(bottom-top);
+                float low = bottom-rawMin[i]/scale*(bottom-top);
+                canvas.drawLine(x, y, x, low, paint);
+                if (previous) canvas.drawLine(px, py, x, y, paint);
+                else canvas.drawCircle(x, y, density, paint);
+                previous = true; px = x; py = y;
+            }
+            if (history.size() > 0) {
+                float budget = history.get(DiagnosticCharts.FRAME_BUDGET, history.size()-1);
+                if (!Float.isNaN(budget) && budget > 0) {
+                    float y = bottom-budget/scale*(bottom-top); paint.setColor(colors[1]);
+                    for (float x = left; x < right; x += dp(8)) canvas.drawLine(x, y, Math.min(right, x+dp(4)), y, paint);
+                }
+            }
+        }
+
         @Override
         protected void onDraw(Canvas canvas) {
             int[] series = DiagnosticCharts.GROUPS[group];
@@ -814,6 +854,10 @@ public final class PerformanceOverlayView extends LinearLayout {
             long start = end - historySeconds * 1000L;
             float lower = group == 27 ? -100 : 0;
             float scale = group == 27 ? 0 : DiagnosticCharts.upperBound(DiagnosticCharts.maximum(history, series, start));
+            if (rawMin != null && frameHistory != null) {
+                scale = DiagnosticCharts.upperBound(Math.max(scale, frameHistory.buckets(start, end, rawMin, rawMax)));
+            }
+            else if (rawMin != null) { java.util.Arrays.fill(rawMin, Float.NaN); java.util.Arrays.fill(rawMax, Float.NaN); }
             float left = dp(small ? 34 : 38), right = getWidth() - dp(9);
             float top = dp(small ? 26 : 38+series.length*11), bottom = getHeight()-dp(small ? 13 : 23);
             String unit = DiagnosticCharts.UNITS[group];
@@ -856,7 +900,8 @@ public final class PerformanceOverlayView extends LinearLayout {
             canvas.drawLine(left, top, left, bottom, paint);
             canvas.drawLine(left, bottom, right, bottom, paint);
             paint.setStrokeWidth(density * (small ? 1.2f : 1.5f));
-            for (int j = 0; j < series.length; j++) {
+            if (rawMin != null) drawRawFrames(canvas, left, right, top, bottom, scale);
+            else for (int j = 0; j < series.length; j++) {
                 paint.setColor(colors[j]); boolean valid = false; float px = 0, py = 0;
                 for (int i = 0; i < history.size(); i++) {
                     long time = history.time(i);
