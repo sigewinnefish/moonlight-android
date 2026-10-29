@@ -201,7 +201,9 @@ public final class PerformanceOverlayView extends LinearLayout {
             PopupWindow popup = new PopupWindow(cancel, Math.max(dp(96), detailPassButton.getWidth()), Math.max(dp(40), Math.max(detailPassButton.getHeight(), cancel.getLineHeight()*2+dp(4))), false);
             popup.setTouchable(true); popup.setOutsideTouchable(false); popup.setSplitTouchEnabled(true);
             popup.setBackgroundDrawable(new ColorDrawable(0xff24394f)); popup.setElevation(dp(4));
-            popup.setOnDismissListener(() -> { if (detailPassThrough) setDetailPassThrough(false); });
+            popup.setOnDismissListener(() -> {
+                if (cancelPassPopup == popup && detailPassThrough) setDetailPassThrough(false);
+            });
             cancelPassPopup = popup;
             try {
                 // A separate child window retains exactly one touch target while the
