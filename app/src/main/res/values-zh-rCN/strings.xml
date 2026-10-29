@@ -328,7 +328,7 @@
         <item>触控队列等待与最老年龄</item>
         <item>待移交触控数量</item>
         <item>控制传输调用耗时</item>
-        <item>RTP输入码率（校验/解密后）</item>
+        <item>RTP队列入口码率</item>
         <item>RTP输入包速率</item>
         <item>RTP交付间隔峰值</item>
         <item>视频后到、重复与序号前跳</item>

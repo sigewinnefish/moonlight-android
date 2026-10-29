@@ -347,7 +347,7 @@
         <item>Touch queue wait / oldest age</item>
         <item>Pending touch handoffs</item>
         <item>Control transport call duration</item>
-        <item>RTP ingress bitrate (post-validation)</item>
+        <item>RTP queue-entry bitrate</item>
         <item>RTP input packet rate</item>
         <item>RTP delivery gap peak</item>
         <item>Video late / duplicate / sequence jump</item>
