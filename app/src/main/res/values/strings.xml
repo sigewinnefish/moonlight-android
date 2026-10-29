@@ -327,7 +327,7 @@
     <string name="diag_history_setting">History window</string>
     <string name="diag_refresh_setting">Refresh / short-window sample interval</string>
     <string name="diag_compact_setting">Compact HUD (full stats remain in dashboard)</string>
-    <string name="diag_opacity_setting">HUD opacity (30–100%)</string>
+    <string name="diag_opacity_setting">HUD background opacity (30–100%)</string>
     <string name="diag_chart_selection">Charts shown in dashboard</string>
     <string name="diag_defaults">Defaults</string>
     <string name="diag_apply">Apply</string>
@@ -436,4 +436,11 @@
         <item>2 columns</item>
         <item>3 columns</item>
     </string-array>
+    <string name="diag_hud_space_limited">Limited space · open Dashboard for all data\n%1$s</string>
+    <string name="diag_passthrough">Pass through</string>
+    <string name="diag_cancel_passthrough">Cancel pass</string>
+    <string name="diag_panel_opacity">Dashboard opacity (30–100%)</string>
+    <string name="diag_no_charts">No charts selected. Enable charts in Settings.</string>
+    <string name="diag_opacity_value">HUD background opacity: %1$d%%</string>
+    <string name="diag_panel_opacity_value">Dashboard opacity: %1$d%%</string>
 </resources>

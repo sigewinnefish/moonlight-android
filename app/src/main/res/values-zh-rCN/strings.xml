@@ -308,7 +308,7 @@
     <string name="diag_history_setting">历史时长</string>
     <string name="diag_refresh_setting">刷新与短窗口采样周期</string>
     <string name="diag_compact_setting">简洁悬浮窗（完整数据保留在详细面板）</string>
-    <string name="diag_opacity_setting">悬浮窗不透明度（30–100%）</string>
+    <string name="diag_opacity_setting">小面板背景不透明度（30–100%）</string>
     <string name="diag_chart_selection">详细面板显示的图表</string>
     <string name="diag_defaults">恢复默认</string>
     <string name="diag_apply">应用</string>
@@ -417,4 +417,11 @@
         <item>2列</item>
         <item>3列</item>
     </string-array>
+    <string name="diag_hud_space_limited">空间不足，完整数据请展开面板查看\n%1$s</string>
+    <string name="diag_passthrough">透传</string>
+    <string name="diag_cancel_passthrough">取消透传</string>
+    <string name="diag_panel_opacity">详细窗口不透明度（30–100%）</string>
+    <string name="diag_no_charts">未选择图表，请在设置中启用需要的图表。</string>
+    <string name="diag_opacity_value">小面板背景不透明度：%1$d%%</string>
+    <string name="diag_panel_opacity_value">详细窗口不透明度：%1$d%%</string>
 </resources>

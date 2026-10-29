@@ -2,6 +2,7 @@ import com.limelight.diagnostics.LatencyWindow;
 import com.limelight.diagnostics.TrendHistory;
 import com.limelight.diagnostics.DiagnosticCharts;
 import com.limelight.diagnostics.PanelGeometry;
+import com.limelight.diagnostics.HudLayout;
 import com.limelight.diagnostics.VideoDiagnosticWindow;
 
 public final class DiagnosticsTest {
@@ -104,6 +105,21 @@ public final class DiagnosticsTest {
         check(DiagnosticCharts.formatValue(Float.NaN, java.util.Locale.US).equals("—"));
         check(Float.parseFloat(DiagnosticCharts.formatValue(.00021f, java.util.Locale.US)) > 0);
         check(DiagnosticCharts.formatValue(-67, java.util.Locale.US).equals("-67.0"));
+        int[] hud = HudLayout.plan(240, 8, 48, 14, 4, 76, 60);
+        check(hud[0] == 48 && hud[1] >= 1 && hud[2] == 2 && hud[3] >= 60);
+        hud = HudLayout.plan(120, 8, 48, 14, 10, 76, 60);
+        check(hud[0] == 48 && hud[2] == 0 && hud[1] > 0);
+        hud = HudLayout.plan(40, 8, 48, 14, 4, 76, 60);
+        check(hud[0] == 32 && hud[1] == 0 && hud[2] == 0);
+        hud = HudLayout.plan(240, 8, 96, 40, 4, 76, 60);
+        check(hud[0] == 96 && hud[1] == 1 && hud[2] == 1 && hud[3] == 76);
+        for (int height = 8; height <= 1000; height += 7) {
+            for (int lineHeight : new int[]{10, 14, 24, 40}) {
+                hud = HudLayout.plan(height, 8, 48, lineHeight, 10, 76, 60);
+                check(hud[0]+hud[1]*lineHeight+hud[2]*hud[3]+8 <= height);
+                check(hud[2] <= 2 && (hud[2] == 0 || hud[3] >= 60));
+            }
+        }
         System.out.println("PASS: " + checks + " diagnostics assertions");
     }
 }

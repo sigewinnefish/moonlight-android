@@ -12,6 +12,7 @@ import android.view.WindowInsetsController;
 import android.graphics.drawable.ColorDrawable;
 import android.widget.GridLayout;
 import com.limelight.diagnostics.PanelGeometry;
+import com.limelight.diagnostics.HudLayout;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Canvas;
@@ -27,6 +28,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Spinner;
+import android.widget.PopupWindow;
 import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import com.limelight.R;
@@ -43,7 +45,14 @@ public final class PerformanceOverlayView extends LinearLayout {
     private final TrendHistory history = new TrendHistory(DiagnosticCharts.SERIES, 3000);
     private final ArrayList<Chart> detailCharts = new ArrayList<>();
     private final TextView hudText;
-    private final LinearLayout body;
+    private final LinearLayout body, hudHeader;
+    private final Button hudPassButton;
+    private Button detailPassButton;
+    private PopupWindow cancelPassPopup;
+    private boolean hudPassThrough, detailPassThrough, hudPassBeforeDetail;
+    private Runnable inputModeListener;
+    private int panelOpacity;
+    private boolean hudExpanded = true, hudSpaceLimited;
     private final Chart hudNetwork, hudInput;
     private final float density;
     private Dialog dashboard;
@@ -56,7 +65,7 @@ public final class PerformanceOverlayView extends LinearLayout {
             post(() -> { restoreHudPosition(); restoreDashboardBounds(); });
         }
     };
-    private TextView detailText;
+    private TextView detailText, emptyChartsNotice;
     private Button pause;
     private boolean paused;
     private boolean compact;
@@ -76,19 +85,26 @@ public final class PerformanceOverlayView extends LinearLayout {
         body = new LinearLayout(context);
         body.setOrientation(VERTICAL);
         LinearLayout header = new LinearLayout(context);
+        hudHeader = header;
         TextView handle = label(16); handle.setText("⠿"); handle.setGravity(Gravity.CENTER);
         handle.setContentDescription(getContext().getString(R.string.diag_drag));
         header.addView(handle, new LayoutParams(dp(30), -1));
         installDrag(handle, false, false);
         button(header, R.string.diag_fold, v -> {
-            boolean visible = body.getVisibility() == VISIBLE;
-            body.setVisibility(visible ? GONE : VISIBLE);
-            ((Button)v).setText(visible ? R.string.diag_unfold : R.string.diag_fold);
+            hudExpanded = !hudExpanded;
+            body.setVisibility(hudExpanded ? VISIBLE : GONE);
+            ((Button)v).setText(hudExpanded ? R.string.diag_fold : R.string.diag_unfold);
+            requestLayout();
         });
         button(header, R.string.diag_open_dashboard, v -> showDashboard());
         button(header, R.string.diag_settings, v -> showSettings());
+        hudPassButton = button(header, R.string.diag_passthrough, v -> {
+            if (detailPassThrough) { setDetailPassThrough(false); setHudPassThrough(false); }
+            else setHudPassThrough(!hudPassThrough);
+        });
         addView(header, new LayoutParams(-1, dp(48)));
         hudText = label(10);
+        hudText.setIncludeFontPadding(false);
         body.addView(hudText);
         hudNetwork = new Chart(context, 0, true);
         hudInput = new Chart(context, 2, true);
@@ -112,6 +128,8 @@ public final class PerformanceOverlayView extends LinearLayout {
         b.setText(title);
         b.setTextSize(11);
         b.setAllCaps(false);
+        b.setMaxLines(2);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setMinWidth(0);
         b.setMinimumWidth(0);
         b.setPadding(dp(3), 0, dp(3), 0);
@@ -127,10 +145,85 @@ public final class PerformanceOverlayView extends LinearLayout {
         if (!prefs.contains("touch_charts_v1")) chartMask |= 15 << 10;
         if (!prefs.contains("network_charts_v1")) chartMask |= ((1 << DiagnosticCharts.GROUPS.length)-1) ^ ((1 << 14)-1);
         opacity = Math.max(30, Math.min(100, prefs.getInt("opacity", 80)));
+        panelOpacity = Math.max(30, Math.min(100, prefs.getInt("panel_opacity", 90)));
+        if (dashboard != null && dashboard.getWindow() != null) {
+            WindowManager.LayoutParams p = dashboard.getWindow().getAttributes();
+            p.alpha = panelOpacity / 100f; dashboard.getWindow().setAttributes(p);
+        }
         compact = prefs.getBoolean("compact", true);
         hudText.setMaxLines(compact ? 4 : 10);
         hudText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         setBackgroundColor(Color.argb(opacity * 255 / 100, 21, 27, 35));
+    }
+
+    public void setInputModeListener(Runnable listener) { inputModeListener = listener; }
+
+    private void releaseRemoteTouches() {
+        if (inputModeListener != null) inputModeListener.run();
+    }
+
+    private void setHudPassThrough(boolean enabled) {
+        if (hudPassThrough == enabled) return;
+        releaseRemoteTouches(); hudPassThrough = enabled;
+        for (int i = 0; i < hudHeader.getChildCount(); i++) {
+            View control = hudHeader.getChildAt(i);
+            if (control == hudPassButton) continue;
+            control.setEnabled(!enabled); control.setClickable(!enabled && control instanceof Button);
+            control.setLongClickable(false);
+        }
+        hudPassButton.setText(enabled ? R.string.diag_cancel_passthrough : R.string.diag_passthrough);
+    }
+
+    private void setDetailPassThrough(boolean enabled) {
+        if (detailPassThrough == enabled) return;
+        releaseRemoteTouches(); detailPassThrough = enabled;
+        // The small HUD may overlap the diagnostic window. Its old controls must
+        // not intercept touches revealed by making the detailed window non-touchable.
+        if (enabled) { hudPassBeforeDetail = hudPassThrough; setHudPassThrough(true); }
+        else setHudPassThrough(hudPassBeforeDetail);
+        if (!enabled) {
+            PopupWindow popup = cancelPassPopup; cancelPassPopup = null;
+            if (popup != null) popup.dismiss();
+        }
+        if (dashboard == null || !dashboard.isShowing() || dashboard.getWindow() == null) {
+            detailPassThrough = false;
+            if (enabled) setHudPassThrough(hudPassBeforeDetail);
+            return;
+        }
+        Window window = dashboard.getWindow();
+        int flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        if (enabled) {
+            Button cancel = new Button(getContext()); cancel.setText(R.string.diag_cancel_passthrough);
+            cancel.setTextSize(10); cancel.setAllCaps(false); cancel.setMaxLines(2);
+            cancel.setPadding(dp(2), 0, dp(2), 0); cancel.setMinWidth(0); cancel.setMinimumWidth(0);
+            cancel.setOnClickListener(v -> setDetailPassThrough(false));
+            cancel.setSystemUiVisibility(window.getDecorView().getSystemUiVisibility());
+            PopupWindow popup = new PopupWindow(cancel, Math.max(dp(96), detailPassButton.getWidth()), Math.max(dp(40), Math.max(detailPassButton.getHeight(), cancel.getLineHeight()*2+dp(4))), false);
+            popup.setTouchable(true); popup.setOutsideTouchable(false); popup.setSplitTouchEnabled(true);
+            popup.setBackgroundDrawable(new ColorDrawable(0xff24394f)); popup.setElevation(dp(4));
+            popup.setOnDismissListener(() -> { if (detailPassThrough) setDetailPassThrough(false); });
+            cancelPassPopup = popup;
+            try {
+                // A separate child window retains exactly one touch target while the
+                // parent diagnostic window becomes genuinely non-touchable/non-focusable.
+                popup.showAsDropDown(detailPassButton, 0, -detailPassButton.getHeight(), Gravity.START);
+                window.addFlags(flags);
+            }
+            catch (WindowManager.BadTokenException e) {
+                detailPassThrough = false; cancelPassPopup = null; popup.dismiss();
+                setHudPassThrough(hudPassBeforeDetail);
+                window.clearFlags(flags);
+            }
+        }
+        else { window.clearFlags(flags); immersive(dashboard); }
+        if (detailPassButton != null) detailPassButton.setText(detailPassThrough ? R.string.diag_cancel_passthrough : R.string.diag_passthrough);
+    }
+
+    public boolean cancelPassThrough() {
+        boolean active = detailPassThrough || hudPassThrough;
+        if (detailPassThrough) setDetailPassThrough(false);
+        if (hudPassThrough) setHudPassThrough(false);
+        return active;
     }
 
     public int getRefreshMs() { return refreshMs; }
@@ -154,13 +247,16 @@ public final class PerformanceOverlayView extends LinearLayout {
     }
 
     private void updateText() {
+        String text;
         if (compact && latest != null) {
-            hudText.setText(getContext().getString(R.string.diag_hud_summary,
+            text = getContext().getString(R.string.diag_hud_summary,
                     latest[DiagnosticCharts.RTT], latest[DiagnosticCharts.RENDER_FPS],
                     latest[DiagnosticCharts.INPUT_P95], latest[DiagnosticCharts.INPUT_PEAK],
-                    latest[DiagnosticCharts.SUBMIT_PEAK], (int)latest[DiagnosticCharts.ERRORS]));
+                    latest[DiagnosticCharts.SUBMIT_PEAK], (int)latest[DiagnosticCharts.ERRORS]);
         }
-        else hudText.setText(latestText);
+        else text = latestText;
+        if (hudSpaceLimited) text = getContext().getString(R.string.diag_hud_space_limited, text);
+        hudText.setText(text);
         if (detailText != null) detailText.setText(latestText);
     }
 
@@ -203,17 +299,38 @@ public final class PerformanceOverlayView extends LinearLayout {
         return getRootView().getHeight() > 0 ? getRootView().getHeight() : getResources().getDisplayMetrics().heightPixels;
     }
 
+    private View hudContainer() { return getParent() instanceof View ? (View)getParent() : getRootView(); }
+
+    private int hudViewportWidth() {
+        View parent = hudContainer();
+        return Math.max(1, parent.getWidth()-parent.getPaddingLeft()-parent.getPaddingRight());
+    }
+
+    private int hudViewportHeight() {
+        View parent = hudContainer();
+        return Math.max(1, parent.getHeight()-parent.getPaddingTop()-parent.getPaddingBottom());
+    }
+
+    private void placeHud(float x, float y) {
+        View parent = hudContainer();
+        int[] rect = PanelGeometry.fit(hudViewportWidth(), hudViewportHeight(),
+                Math.round(x)-parent.getPaddingLeft(), Math.round(y)-parent.getPaddingTop(),
+                getWidth(), getHeight(), 1, 1);
+        setX(rect[0]+parent.getPaddingLeft()); setY(rect[1]+parent.getPaddingTop());
+    }
+
     private void restoreHudPosition() {
         if (getWidth() == 0 || getHeight() == 0) return;
-        int x = prefs.contains("hud_x") ? Math.round(prefs.getFloat("hud_x", 0) * Math.max(0, screenWidth()-getWidth())) : (int)getX();
-        int y = prefs.contains("hud_y") ? Math.round(prefs.getFloat("hud_y", 0) * Math.max(0, screenHeight()-getHeight())) : (int)getY();
-        int[] rect = PanelGeometry.fit(screenWidth(), screenHeight(), x, y, getWidth(), getHeight(), 1, 1);
-        setX(rect[0]); setY(rect[1]);
+        View parent = hudContainer();
+        float x = prefs.contains("hud_x") ? parent.getPaddingLeft()+prefs.getFloat("hud_x", 0)*Math.max(0, hudViewportWidth()-getWidth()) : getX();
+        float y = prefs.contains("hud_y") ? parent.getPaddingTop()+prefs.getFloat("hud_y", 0)*Math.max(0, hudViewportHeight()-getHeight()) : getY();
+        placeHud(x, y);
     }
 
     private void saveHudPosition() {
-        prefs.edit().putFloat("hud_x", getX()/Math.max(1, screenWidth()-getWidth()))
-                .putFloat("hud_y", getY()/Math.max(1, screenHeight()-getHeight())).apply();
+        View parent = hudContainer();
+        prefs.edit().putFloat("hud_x", (getX()-parent.getPaddingLeft())/Math.max(1, hudViewportWidth()-getWidth()))
+                .putFloat("hud_y", (getY()-parent.getPaddingTop())/Math.max(1, hudViewportHeight()-getHeight())).apply();
     }
 
     private void restoreDashboardBounds() {
@@ -233,6 +350,11 @@ public final class PerformanceOverlayView extends LinearLayout {
         params.gravity = Gravity.TOP | Gravity.getAbsoluteGravity(Gravity.START, View.LAYOUT_DIRECTION_LTR);
         params.x = rect[0]; params.y = rect[1]; params.width = rect[2]; params.height = rect[3];
         dashboard.getWindow().setAttributes(params);
+        if (detailPassThrough && detailPassButton != null) detailPassButton.post(() -> {
+            if (cancelPassPopup != null && cancelPassPopup.isShowing() && detailPassButton != null) {
+                cancelPassPopup.update(detailPassButton, 0, -detailPassButton.getHeight(), Math.max(dp(96), detailPassButton.getWidth()), Math.max(dp(40), Math.max(detailPassButton.getHeight(), ((TextView)cancelPassPopup.getContentView()).getLineHeight()*2+dp(4))));
+            }
+        });
     }
 
     private void saveDashboardBounds() {
@@ -250,6 +372,7 @@ public final class PerformanceOverlayView extends LinearLayout {
             private float rawX, rawY;
             @Override
             public boolean onTouch(View view, MotionEvent event) {
+                if (!window && hudPassThrough) return false;
                 if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
                     pointer = event.getPointerId(0); rawX = event.getRawX(); rawY = event.getRawY();
                     if (window && dashboard != null && dashboard.getWindow() != null) {
@@ -271,8 +394,7 @@ public final class PerformanceOverlayView extends LinearLayout {
                         else setDashboardBounds(x+Math.round(dx), y+Math.round(dy), width, height);
                     }
                     else {
-                        int[] rect = PanelGeometry.fit(screenWidth(), screenHeight(), x+Math.round(dx), y+Math.round(dy), width, height, 1, 1);
-                        setX(rect[0]); setY(rect[1]);
+                        placeHud(x+dx, y+dy);
                     }
                     return true;
                 }
@@ -303,6 +425,7 @@ public final class PerformanceOverlayView extends LinearLayout {
 
     private void showDashboard() {
         if (dashboard != null && dashboard.isShowing()) return;
+        if (detailPassThrough) setDetailPassThrough(false);
         LinearLayout content = new LinearLayout(getContext());
         content.setOrientation(VERTICAL); content.setPadding(dp(6), dp(2), dp(6), dp(2));
         content.setBackgroundColor(0xf2151b23);
@@ -313,7 +436,6 @@ public final class PerformanceOverlayView extends LinearLayout {
         Button close = new Button(getContext()); close.setText("×"); close.setTextSize(16);
         close.setPadding(0, 0, 0, 0); close.setMinWidth(0); close.setMinimumWidth(0);
         close.setContentDescription(getContext().getString(R.string.diag_close));
-        close.setOnClickListener(v -> dashboard.dismiss());
         title.addView(close, new LayoutParams(dp(40), -1)); content.addView(title, new LayoutParams(-1, dp(34)));
         LinearLayout tools = new LinearLayout(getContext());
         pause = button(tools, paused ? R.string.diag_resume : R.string.diag_pause, v -> togglePause());
@@ -323,6 +445,7 @@ public final class PerformanceOverlayView extends LinearLayout {
             hudNetwork.invalidate(); hudInput.invalidate();
         });
         button(tools, R.string.diag_settings, v -> showSettings());
+        detailPassButton = button(tools, R.string.diag_passthrough, v -> setDetailPassThrough(!detailPassThrough));
         button(tools, R.string.diag_detail_text, v -> {
             if (detailText != null) detailText.setVisibility(detailText.getVisibility() == VISIBLE ? GONE : VISIBLE);
         });
@@ -331,11 +454,13 @@ public final class PerformanceOverlayView extends LinearLayout {
         ScrollView scroll = new ScrollView(getContext());
         LinearLayout rows = new LinearLayout(getContext()); rows.setOrientation(VERTICAL);
         detailText = label(10); detailText.setText(latestText); detailText.setVisibility(GONE); rows.addView(detailText);
+        emptyChartsNotice = label(10); emptyChartsNotice.setText(R.string.diag_no_charts); rows.addView(emptyChartsNotice);
         dashboardGrid = new GridLayout(getContext()); rows.addView(dashboardGrid, new LayoutParams(-1, -2));
         dashboardColumns = 0; detailCharts.clear();
         for (int group = 0; group < DiagnosticCharts.GROUPS.length; group++) {
             if ((chartMask & (1 << group)) != 0) detailCharts.add(new Chart(getContext(), group, false));
         }
+        emptyChartsNotice.setVisibility(detailCharts.isEmpty() ? VISIBLE : GONE);
         dashboardGrid.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (r-l != or-ol) v.post(() -> reflowCharts());
         });
@@ -356,9 +481,22 @@ public final class PerformanceOverlayView extends LinearLayout {
             dashboard.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             dashboard.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             dashboard.getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
+            WindowManager.LayoutParams p = dashboard.getWindow().getAttributes();
+            p.alpha = panelOpacity / 100f; dashboard.getWindow().setAttributes(p);
         }
+        Dialog opened = dashboard;
+        close.setOnClickListener(v -> opened.dismiss());
         dashboard.setOnDismissListener(d -> {
-            detailCharts.clear(); detailText = null; pause = null; dashboardGrid = null; paused = false;
+            // Dialog dismissal callbacks are queued. An older window must not clear
+            // references belonging to a newer window opened before this callback ran.
+            if (dashboard != opened) return;
+            boolean wasPassing = detailPassThrough;
+            detailPassThrough = false;
+            if (wasPassing) setHudPassThrough(hudPassBeforeDetail);
+            if (cancelPassPopup != null) { cancelPassPopup.dismiss(); cancelPassPopup = null; }
+            detailPassButton = null;
+            detailCharts.clear(); detailText = null; emptyChartsNotice = null; pause = null; dashboardGrid = null; paused = false;
+            dashboard = null;
         });
         showImmersive(dashboard); restoreDashboardBounds();
     }
@@ -394,6 +532,7 @@ public final class PerformanceOverlayView extends LinearLayout {
     }
 
     private void showSettings() {
+        if (detailPassThrough) setDetailPassThrough(false);
         if (settings != null && settings.isShowing()) return;
         ScrollView scroll = new ScrollView(getContext());
         LinearLayout panel = new LinearLayout(getContext());
@@ -410,6 +549,11 @@ public final class PerformanceOverlayView extends LinearLayout {
         TextView opacityLabel = label(14); opacityLabel.setText(R.string.diag_opacity_setting); panel.addView(opacityLabel);
         SeekBar transparency = new SeekBar(getContext()); transparency.setMax(70); transparency.setProgress(opacity - 30);
         panel.addView(transparency, new LayoutParams(-1, dp(48)));
+        bindOpacityLabel(transparency, opacityLabel, R.string.diag_opacity_value);
+        TextView panelOpacityLabel = label(14); panelOpacityLabel.setText(R.string.diag_panel_opacity); panel.addView(panelOpacityLabel);
+        SeekBar panelTransparency = new SeekBar(getContext()); panelTransparency.setMax(70); panelTransparency.setProgress(panelOpacity-30);
+        panel.addView(panelTransparency, new LayoutParams(-1, dp(48)));
+        bindOpacityLabel(panelTransparency, panelOpacityLabel, R.string.diag_panel_opacity_value);
         TextView chartLabel = label(14); chartLabel.setText(R.string.diag_chart_selection); panel.addView(chartLabel);
         String[] names = getResources().getStringArray(R.array.diag_chart_names);
         CheckBox[] enabled = new CheckBox[names.length];
@@ -422,7 +566,9 @@ public final class PerformanceOverlayView extends LinearLayout {
         settings = new AlertDialog.Builder(getContext()).setTitle(R.string.diag_settings)
                 .setView(scroll).setNegativeButton(android.R.string.cancel, null)
                 .setNeutralButton(R.string.diag_defaults, (d, w) -> {
-                    prefs.edit().clear().apply(); setX(dp(10)); setY(dp(10)); applySettings();
+                    prefs.edit().clear().apply();
+                    placeHud(hudContainer().getPaddingLeft()+dp(10), hudContainer().getPaddingTop()+dp(10));
+                    applySettings();
                 })
                 .setPositiveButton(R.string.diag_apply, (d, w) -> {
                     int mask = 0;
@@ -430,26 +576,63 @@ public final class PerformanceOverlayView extends LinearLayout {
                     prefs.edit().putInt("history", HISTORY_SECONDS[duration.getSelectedItemPosition()])
                             .putInt("refresh_v2", REFRESH_MS[refresh.getSelectedItemPosition()])
                             .putInt("charts", mask).putBoolean("touch_charts_v1", true).putBoolean("network_charts_v1", true).putInt("opacity", transparency.getProgress() + 30)
-                            .putBoolean("compact", brief.isChecked()).putInt("columns", columns.getSelectedItemPosition()).apply();
+                            .putBoolean("compact", brief.isChecked()).putInt("panel_opacity", panelTransparency.getProgress()+30)
+                            .putInt("columns", columns.getSelectedItemPosition()).apply();
                     applySettings();
                 }).create();
         showImmersive(settings);
     }
 
+    private void bindOpacityLabel(SeekBar slider, TextView label, int resource) {
+        label.setText(getContext().getString(resource, slider.getProgress()+30));
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                label.setText(getContext().getString(resource, progress+30));
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) {}
+            @Override public void onStopTrackingTouch(SeekBar bar) {}
+        });
+    }
+
     private void applySettings() {
         loadSettings(); updateText(); hudNetwork.invalidate(); hudInput.invalidate();
-        if (dashboard != null && dashboard.isShowing()) {
-            boolean wasPaused = paused;
-            dashboard.dismiss(); showDashboard();
-            paused = wasPaused;
-            pause.setText(paused ? R.string.diag_resume : R.string.diag_pause);
+        if (dashboard != null && dashboard.isShowing() && dashboardGrid != null) {
+            // Update in place: recreating the dialog races its asynchronous onDismiss
+            // callback and also needlessly loses the window geometry and scroll state.
+            dashboardGrid.removeAllViews(); detailCharts.clear(); dashboardColumns = 0;
+            for (int group = 0; group < DiagnosticCharts.GROUPS.length; group++) {
+                if ((chartMask & (1 << group)) != 0) detailCharts.add(new Chart(getContext(), group, false));
+            }
+            if (emptyChartsNotice != null) emptyChartsNotice.setVisibility(detailCharts.isEmpty() ? VISIBLE : GONE);
+            reflowCharts();
+            dashboardGrid.post(() -> reflowCharts());
         }
+        requestLayout();
     }
 
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
-        int width = Math.min(MeasureSpec.getSize(widthSpec), dp(390));
-        super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST), heightSpec);
+        int width = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED ? dp(390) :
+                Math.min(MeasureSpec.getSize(widthSpec), dp(390));
+        int height = MeasureSpec.getMode(heightSpec) == MeasureSpec.UNSPECIFIED ? dp(2000) : MeasureSpec.getSize(heightSpec);
+        int line = Math.max(1, hudText.getLineHeight()+dp(1));
+        int header = dp(48);
+        for (int i = 0; i < hudHeader.getChildCount(); i++) {
+            View child = hudHeader.getChildAt(i);
+            if (child instanceof Button) header = Math.max(header, ((Button)child).getLineHeight()*2+dp(4));
+        }
+        int[] plan = HudLayout.plan(height, getPaddingTop()+getPaddingBottom()+dp(4), header, line,
+                compact ? 4 : 10, dp(76), dp(60));
+        ViewGroup.LayoutParams headerParams = hudHeader.getLayoutParams(); headerParams.height = plan[0];
+        body.setVisibility(hudExpanded && plan[1] > 0 ? VISIBLE : GONE);
+        if (hudText.getMaxLines() != Math.max(1, plan[1])) hudText.setMaxLines(Math.max(1, plan[1]));
+        boolean limited = plan[2] < 2;
+        if (limited != hudSpaceLimited) { hudSpaceLimited = limited; updateText(); }
+        hudNetwork.setVisibility(plan[2] >= 1 ? VISIBLE : GONE);
+        hudInput.setVisibility(plan[2] >= 2 ? VISIBLE : GONE);
+        hudNetwork.getLayoutParams().height = plan[3]; hudInput.getLayoutParams().height = plan[3];
+        // Exact width prevents weighted header buttons/graphs shrinking independently.
+        super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), heightSpec);
     }
 
     @Override
@@ -462,11 +645,14 @@ public final class PerformanceOverlayView extends LinearLayout {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        post(() -> restoreHudPosition());
+        // Folding or changing text height should clamp the current location, not jump
+        // to a different saved fraction of the now-larger free space.
+        post(() -> placeHud(getX(), getY()));
     }
 
     @Override
     protected void onDetachedFromWindow() {
+        cancelPassThrough();
         if (activityRoot != null) activityRoot.removeOnLayoutChangeListener(rootLayoutListener);
         if (optionPicker != null) optionPicker.dismiss();
         if (settings != null) settings.dismiss();
@@ -504,7 +690,7 @@ public final class PerformanceOverlayView extends LinearLayout {
             float top = dp(small ? 26 : 38+series.length*11), bottom = getHeight()-dp(small ? 13 : 23);
             String unit = DiagnosticCharts.UNITS[group];
             if (unit.equals("count")) unit = getContext().getString(R.string.diag_unit_count);
-            paint.setColor(0xff1c2733);
+            paint.setColor(small ? Color.TRANSPARENT : 0xff1c2733);
             canvas.drawRoundRect(dp(1), dp(3), getWidth()-dp(1), getHeight()-dp(3), dp(7), dp(7), paint);
             paint.setTextSize(dp(small ? 9 : 10)); paint.setColor(0xffe8eef5);
             float available = right-dp(38)-dp(9);

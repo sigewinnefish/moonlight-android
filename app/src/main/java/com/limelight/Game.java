@@ -301,6 +301,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         notificationOverlayView = findViewById(R.id.notificationOverlay);
 
         performanceOverlayView = findViewById(R.id.performanceOverlay);
+        performanceOverlayView.setInputModeListener(() -> cancelNativeTouches());
 
         inputCaptureProvider = InputCaptureManager.getInputCaptureProvider(this, this);
 
@@ -1107,6 +1108,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onPause() {
+        if (performanceOverlayView != null) performanceOverlayView.cancelPassThrough();
         cancelNativeTouches();
         if (isFinishing()) {
             // Stop any further input device notifications before we lose focus (and pointer capture)
@@ -1366,6 +1368,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private byte getModifierState() {
         return (byte) modifierFlags;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onBackPressed() {
+        if (performanceOverlayView != null && performanceOverlayView.cancelPassThrough()) return;
+        super.onBackPressed();
     }
 
     @Override
