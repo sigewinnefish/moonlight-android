@@ -4,7 +4,7 @@ Enable the existing **Display performance overlay / 启用性能信息** prefere
 
 The overlay retains original resolution/FPS/decoder/frame-loss/host-processing/decode statistics and adds:
 
-- Active Android network transport; on Wi-Fi, RSSI, frequency and negotiated link rate when Android exposes them. No new permissions, SSID or BSSID collection. VPNs/multiple interfaces can hide the actual route to the host. Negotiated rate is not measured throughput.
+- Active Android network transport (polled every five seconds on a dedicated background worker, stopped with the stream); on Wi-Fi, RSSI, frequency and negotiated link rate when Android exposes them. No new permissions, SSID or BSSID collection. VPNs/multiple interfaces can hide the actual route to the host. Negotiated rate is not measured throughput.
 - Compressed video payload Mbps (decode units only, not wire throughput, audio, FEC or retransmission overhead).
 - Maximum interval between first-packet receive timestamps of distinct submitted video frames in the video sample window. This is not packet jitter, nor proof of an input-network fault. Lost frames or host pacing can also increase it.
 - Client video pipeline average (upstream receive-to-decoder-output accounting; does not include touch delivery, the host game or physical display scanout).

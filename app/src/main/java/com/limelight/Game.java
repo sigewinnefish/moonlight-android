@@ -160,6 +160,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private int diagnosticUnsupported;
     private int diagnosticContacts;
     private long diagnosticLastTickMs;
+    private volatile String diagnosticNetworkText;
+    private java.util.concurrent.ScheduledExecutorService diagnosticNetworkPoller;
     private final Runnable diagnosticTick = new Runnable() {
         @Override
         public void run() {
@@ -1068,6 +1070,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onDestroy() {
+        stopDiagnosticNetworkPoller();
         if (performanceOverlayView != null) performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
         super.onDestroy();
@@ -2325,7 +2328,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     public void stageComplete(String stage) {
     }
 
+    private void stopDiagnosticNetworkPoller() {
+        if (diagnosticNetworkPoller != null) {
+            diagnosticNetworkPoller.shutdownNow();
+            diagnosticNetworkPoller = null;
+        }
+    }
+
     private void stopConnection() {
+        stopDiagnosticNetworkPoller();
         performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
         if (connecting || connected) {
@@ -2517,6 +2528,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 connected = true;
                 connecting = false;
                 if (prefConfig.enablePerfOverlay) {
+                    // Wi-Fi service calls can block: never poll them on the input/UI thread.
+                    diagnosticNetworkPoller = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+                    diagnosticNetworkPoller.scheduleWithFixedDelay(() -> {
+                        diagnosticNetworkText = diagnosticNetwork();
+                    }, 0, 5, java.util.concurrent.TimeUnit.SECONDS);
                     diagnosticLastTickMs = android.os.SystemClock.uptimeMillis();
                     performanceOverlayView.post(diagnosticTick);
                 }
@@ -2807,7 +2823,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         float jitter = rttInfo == -1 ? Float.NaN : (int)rttInfo;
         StringBuilder text = new StringBuilder(1024);
         text.append(getString(R.string.diag_header)).append('\n');
-        text.append(diagnosticNetwork()).append('\n');
+        text.append(diagnosticNetworkText == null ? getString(R.string.diag_network_unknown) : diagnosticNetworkText).append('\n');
         if (!fresh) text.append(getString(R.string.diag_stale)).append('\n');
         if (video != null) text.append(video.text).append('\n');
         else text.append(getString(R.string.diag_waiting)).append('\n');
