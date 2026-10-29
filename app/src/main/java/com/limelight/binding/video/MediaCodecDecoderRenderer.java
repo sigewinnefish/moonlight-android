@@ -75,9 +75,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private String glRenderer;
     private boolean foreground = true;
     private PerfOverlayListener perfListener;
-    private long diagnosticLastFrameMs;
-    private long diagnosticBytes;
-    private long diagnosticGapMaxMs;
+    private final com.limelight.diagnostics.VideoDiagnosticWindow diagnosticVideo =
+            new com.limelight.diagnostics.VideoDiagnosticWindow();
+    private long diagnosticLastSampleMs;
+    private String diagnosticText = "";
+    private float diagnosticClientMs = Float.NaN;
 
     private static final int CR_MAX_TRIES = 10;
     private static final int CR_RECOVERY_TYPE_NONE = 0;
@@ -973,6 +975,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                     lastRenderedFrameTimeNanos = frameTimeNanos;
                     activeWindowVideoStats.totalFramesRendered++;
+                    if (prefs.enablePerfOverlay) diagnosticVideo.rendered();
                 } catch (IllegalStateException ignored) {
                     try {
                         // Try to avoid leaking the output buffer by releasing it without rendering
@@ -1055,6 +1058,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 }
 
                                 activeWindowVideoStats.totalFramesRendered++;
+                                if (prefs.enablePerfOverlay) diagnosticVideo.rendered();
                             }
                             else {
                                 // For balanced frame pacing case, the Choreographer callback will handle rendering.
@@ -1083,6 +1087,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             long delta = SystemClock.uptimeMillis() - (presentationTimeUs / 1000);
                             if (delta >= 0 && delta < 1000) {
                                 activeWindowVideoStats.decoderTimeMs += delta;
+                                if (prefs.enablePerfOverlay) diagnosticVideo.decoded(delta);
                                 if (!USE_FRAME_RENDER_TIME) {
                                     activeWindowVideoStats.totalTimeMs += delta;
                                 }
@@ -1355,14 +1360,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         if (prefs.enablePerfOverlay) {
-            long now = receiveTimeUs / 1000;
-            diagnosticBytes += decodeUnitLength;
-            if (frameNumber != lastFrameNumber) {
-                if (diagnosticLastFrameMs != 0) {
-                    diagnosticGapMaxMs = Math.max(diagnosticGapMaxMs, now - diagnosticLastFrameMs);
-                }
-                diagnosticLastFrameMs = now;
-            }
+            long now = SystemClock.uptimeMillis();
+            diagnosticVideo.incoming(now, frameNumber, decodeUnitLength, receiveTimeUs, frameHostProcessingLatency);
+            if (diagnosticLastSampleMs == 0) diagnosticLastSampleMs = now;
         }
         if (lastFrameNumber == 0) {
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
@@ -1420,20 +1420,25 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             (float)lastTwo.totalHostProcessingLatency / 10 / lastTwo.framesWithHostProcessingLatency)).append('\n');
                 }
                 sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs));
-                long sampleTime = SystemClock.uptimeMillis();
-                float seconds = Math.max(1, sampleTime - activeWindowVideoStats.measurementStartTimestamp) / 1000f;
-                perfListener.onPerfUpdate(new PerfSample(sb.toString(), sampleTime,
-                        diagnosticGapMaxMs, diagnosticBytes * 8f / seconds / 1000000f,
-                        lastTwo.totalFramesReceived == 0 ? Float.NaN :
-                                (float)lastTwo.totalTimeMs / lastTwo.totalFramesReceived));
-                diagnosticBytes = 0;
-                diagnosticGapMaxMs = 0;
+                diagnosticText = sb.toString();
+                diagnosticClientMs = lastTwo.totalFramesReceived == 0 ? Float.NaN :
+                        (float)lastTwo.totalTimeMs / lastTwo.totalFramesReceived;
             }
 
             globalVideoStats.add(activeWindowVideoStats);
             lastWindowVideoStats.copy(activeWindowVideoStats);
             activeWindowVideoStats.clear();
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
+        }
+
+        if (prefs.enablePerfOverlay) {
+            long now = SystemClock.uptimeMillis();
+            if (now - diagnosticLastSampleMs >= Math.max(100, perfListener.getPerfRefreshMs())) {
+                float[] window = diagnosticVideo.drain(now);
+                perfListener.onPerfUpdate(new PerfSample(diagnosticText, now, window[0], window[1],
+                        diagnosticClientMs, window[2], window[3], window[4], window[5], window[6]));
+                diagnosticLastSampleMs = now;
+            }
         }
 
         boolean csdSubmittedForThisFrame = false;

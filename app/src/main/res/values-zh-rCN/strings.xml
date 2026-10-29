@@ -286,7 +286,7 @@
     <string name="analogscroll_none">默认 (两个摇杆都控制鼠标)</string>
     <string name="title_native_multitouch">原生多点触控</string>
     <string name="summary_native_multitouch">向支持的 Sunshine 主机发送独立触点。优先于触控板模式，禁用三指键盘手势。不支持的主机使用原有触控模式。</string>
-    <string name="diag_header">串流诊断 · 1秒采样 / 60秒趋势</string>
+    <string name="diag_header">串流诊断 · 可配置实时趋势</string>
     <string name="diag_network_unknown">网络：未知 / 权限受限</string>
     <string name="diag_waiting">等待视频统计…</string>
     <string name="diag_video_extra">视频载荷：%1$.1f Mbps | 帧到达间隔峰值：%2$.1f ms\n客户端流水线均值：%3$.1f ms（非输入延迟）</string>
@@ -294,7 +294,57 @@
     <string name="diag_submit">原生提交/秒：%1$d | P95/峰值：%2$.2f / %3$.2f ms\n提交失败：%4$d | 不支持：%5$d（本周期）</string>
     <string name="diag_freshness">视频统计距今：%1$d ms | UI采样迟到：%2$d ms</string>
     <string name="diag_limits">NaN＝无样本；-1＝等待。提交≠主机确认。\nWi-Fi链路速率≠吞吐量；RTT≠触控到画面延迟。</string>
-    <string name="diag_chart_network">60秒 · 蓝 RTT / 黄 波动 / 红 帧间隔</string>
-    <string name="diag_chart_input">60秒 · 绿 事件等待峰值 / 紫 提交峰值</string>
     <string name="diag_stale">视频统计已过期 / 等待更新</string>
+    <string name="diag_fold">收起</string>
+    <string name="diag_unfold">显示</string>
+    <string name="diag_open_dashboard">展开面板</string>
+    <string name="diag_settings">设置</string>
+    <string name="diag_dashboard_title">高级串流诊断</string>
+    <string name="diag_close">关闭</string>
+    <string name="diag_pause">冻结图表</string>
+    <string name="diag_resume">继续采样</string>
+    <string name="diag_reset">清空历史</string>
+    <string name="diag_paused">已冻结</string>
+    <string name="diag_now">最新</string>
+    <string name="diag_history_setting">历史时长</string>
+    <string name="diag_refresh_setting">刷新与短窗口采样周期</string>
+    <string name="diag_compact_setting">简洁悬浮窗（完整数据保留在详细面板）</string>
+    <string name="diag_opacity_setting">悬浮窗不透明度（30–100%）</string>
+    <string name="diag_chart_selection">详细面板显示的图表</string>
+    <string name="diag_defaults">恢复默认</string>
+    <string name="diag_apply">应用</string>
+    <string name="diag_dashboard_help">向下滚动查看所有图表；冻结后可观察尖峰。事件等待与提交耗时均为客户端数据，不代表主机触控确认。打开面板会取消正在发送的远端触点。</string>
+    <string name="diag_hud_summary">RTT %1$.1f ms · 渲染 %2$.1f FPS\n触摸等待P95/峰值 %3$.1f / %4$.1f ms\n提交峰值 %5$.2f ms · 失败 %6$d</string>
+    <string-array name="diag_chart_names">
+        <item>网络RTT与波动</item>
+        <item>视频帧到达间隔</item>
+        <item>触摸事件等待</item>
+        <item>原生触控提交</item>
+        <item>接收与渲染帧率</item>
+        <item>解码、客户端与主机处理</item>
+        <item>视频载荷码率</item>
+        <item>视频丢帧比例</item>
+        <item>UI采样迟到</item>
+        <item>触点数与提交失败</item>
+    </string-array>
+    <string-array name="diag_series_names">
+        <item>RTT</item>
+        <item>波动</item>
+        <item>帧间隔</item>
+        <item>P95</item>
+        <item>峰值</item>
+        <item>P95</item>
+        <item>峰值</item>
+        <item>接收</item>
+        <item>渲染</item>
+        <item>解码</item>
+        <item>客户端</item>
+        <item>载荷</item>
+        <item>丢帧</item>
+        <item>主机</item>
+        <item>失败</item>
+        <item>UI迟到</item>
+        <item>触点</item>
+    </string-array>
+    <string name="diag_unit_count">个/次</string>
 </resources>

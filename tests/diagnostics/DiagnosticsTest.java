@@ -1,5 +1,7 @@
 import com.limelight.diagnostics.LatencyWindow;
 import com.limelight.diagnostics.TrendHistory;
+import com.limelight.diagnostics.DiagnosticCharts;
+import com.limelight.diagnostics.VideoDiagnosticWindow;
 
 public final class DiagnosticsTest {
     private static int checks;
@@ -7,7 +9,7 @@ public final class DiagnosticsTest {
         checks++;
         if (!v) throw new AssertionError("Check " + checks);
     }
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         LatencyWindow w = new LatencyWindow();
         check(Float.isNaN(w.drain()[2]));
         w.record(-1); w.record(Float.NaN); w.record(Float.POSITIVE_INFINITY);
@@ -35,6 +37,53 @@ public final class DiagnosticsTest {
         boolean rejected = false;
         try { h.add(1); } catch (IllegalArgumentException e) { rejected = true; }
         check(rejected);
+        TrendHistory timed = new TrendHistory(2, 600);
+        for (int i = 0; i < 700; i++) timed.addAt(i * 500L, i, Float.NaN);
+        check(timed.size() == 600 && timed.time(0) == 50000 && timed.time(599) == 349500);
+        check(timed.get(0, 0) == 100 && timed.get(0, 599) == 699);
+        check(DiagnosticCharts.maximum(timed, new int[]{0, 1}, 349000) == 699);
+        check(DiagnosticCharts.maximum(timed, new int[]{1}, 0) == 0);
+        check(DiagnosticCharts.maximum(timed, new int[]{0}, 400000) == 0);
+        check(DiagnosticCharts.upperBound(0) == 1);
+        check(DiagnosticCharts.upperBound(Float.NaN) == 1);
+        check(DiagnosticCharts.upperBound(.12f) >= .12f && DiagnosticCharts.upperBound(.12f) < 1);
+        check(DiagnosticCharts.upperBound(123) == 200);
+        boolean[] covered = new boolean[DiagnosticCharts.SERIES];
+        for (int[] group : DiagnosticCharts.GROUPS) {
+            for (int series : group) { check(series >= 0 && series < covered.length); covered[series] = true; }
+        }
+        for (boolean present : covered) check(present);
+        timed.clear(); check(timed.size() == 0);
+        timed.addAt(1234, 2, 3); check(timed.time(0) == 1234 && timed.get(1, 0) == 3);
+        VideoDiagnosticWindow video = new VideoDiagnosticWindow();
+        video.incoming(1000, 10, 1000, 5000000, 100);
+        video.incoming(1000, 10, 100, 5000000, 100); // CSD fragment: bytes, not another frame.
+        video.decoded(2); video.decoded(4); video.rendered();
+        video.incoming(1050, 12, 1000, 5050000, 300);
+        float[] fast = video.drain(1100);
+        check(fast[0] == 50 && Math.abs(fast[1] - .168f) < .0001);
+        check(fast[2] == 20 && fast[3] == 10 && fast[4] == 3);
+        check(Math.abs(fast[5] - 100f/3) < .001 && fast[6] == 20);
+        video.incoming(1250, 13, 100, 5200000, 0);
+        video.decoded(-1); video.decoded(1000);
+        fast = video.drain(1250);
+        check(fast[0] == 150 && Float.isNaN(fast[4]) && Float.isNaN(fast[6]) && fast[5] == 0);
+        VideoDiagnosticWindow wrap = new VideoDiagnosticWindow();
+        wrap.incoming(1000, Integer.MAX_VALUE, 1, 1000, 0);
+        wrap.incoming(1100, Integer.MIN_VALUE, 1, 2000, 0);
+        check(wrap.drain(1200)[5] == 0);
+        VideoDiagnosticWindow concurrent = new VideoDiagnosticWindow();
+        Thread output = new Thread(() -> {
+            for (int i = 0; i < 10000; i++) { concurrent.rendered(); concurrent.decoded(1); }
+        });
+        output.start();
+        for (int i = 1; i <= 10000; i++) concurrent.incoming(1000, i, 100, i * 1000L, 10);
+        output.join();
+        fast = concurrent.drain(2000);
+        check(fast[2] == 10000 && fast[3] == 10000 && fast[4] == 1 && fast[5] == 0);
+        TrendHistory full = new TrendHistory(1, 3000);
+        for (int i = 0; i < 3500; i++) full.addAt(i * 100L, i);
+        check(full.size() == 3000 && full.time(0) == 50000 && full.get(0, 2999) == 3499);
         System.out.println("PASS: " + checks + " diagnostics assertions");
     }
 }

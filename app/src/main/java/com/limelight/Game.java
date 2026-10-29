@@ -160,6 +160,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private int diagnosticUnsupported;
     private int diagnosticContacts;
     private long diagnosticLastTickMs;
+    private long diagnosticExpectedTickMs;
     private volatile String diagnosticNetworkText;
     private java.util.concurrent.ScheduledExecutorService diagnosticNetworkPoller;
     private final Runnable diagnosticTick = new Runnable() {
@@ -167,7 +168,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         public void run() {
             if (!connected || !prefConfig.enablePerfOverlay) return;
             updateDiagnostics();
-            performanceOverlayView.postDelayed(this, 1000);
+            int delay = performanceOverlayView.getRefreshMs();
+            diagnosticExpectedTickMs = android.os.SystemClock.uptimeMillis() + delay;
+            performanceOverlayView.postDelayed(this, delay);
         }
     };
 
@@ -2534,6 +2537,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                         diagnosticNetworkText = diagnosticNetwork();
                     }, 0, 5, java.util.concurrent.TimeUnit.SECONDS);
                     diagnosticLastTickMs = android.os.SystemClock.uptimeMillis();
+                    diagnosticExpectedTickMs = diagnosticLastTickMs;
                     performanceOverlayView.post(diagnosticTick);
                 }
                 updatePipAutoEnter();
@@ -2784,6 +2788,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     @Override
+    public int getPerfRefreshMs() {
+        return performanceOverlayView.getRefreshMs();
+    }
+
+    @Override
     public void onPerfUpdate(final PerfSample sample) {
         diagnosticVideoSample = sample;
     }
@@ -2812,12 +2821,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private void updateDiagnostics() {
         long now = android.os.SystemClock.uptimeMillis();
-        long tickDelay = Math.max(0, now - diagnosticLastTickMs - 1000);
+        long interval = Math.max(1, now - diagnosticLastTickMs);
+        long tickDelay = Math.max(0, now - diagnosticExpectedTickMs);
         diagnosticLastTickMs = now;
         float[] input = diagnosticInputAge.drain();
         float[] submit = diagnosticSubmit.drain();
         PerfSample video = diagnosticVideoSample;
-        boolean fresh = video != null && now - video.timestampMs < 2500;
+        boolean fresh = video != null && now - video.timestampMs < Math.max(500, performanceOverlayView.getRefreshMs() * 3L);
         long rttInfo = MoonBridge.getEstimatedRttInfo();
         float rtt = rttInfo == -1 ? Float.NaN : (int)(rttInfo >> 32);
         float jitter = rttInfo == -1 ? Float.NaN : (int)rttInfo;
@@ -2830,15 +2840,20 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         text.append(getString(R.string.diag_video_extra,
                 fresh ? video.videoMbps : Float.NaN, fresh ? video.frameGapMaxMs : Float.NaN,
                 fresh ? video.clientMs : Float.NaN)).append('\n');
-        text.append(getString(R.string.diag_input, (int)input[0], diagnosticContacts,
+        text.append(getString(R.string.diag_input, (int)(input[0] * 1000 / interval), diagnosticContacts,
                 input[2], input[3])).append('\n');
-        text.append(getString(R.string.diag_submit, (int)submit[0], submit[2], submit[3],
+        text.append(getString(R.string.diag_submit, (int)(submit[0] * 1000 / interval), submit[2], submit[3],
                 diagnosticSendErrors, diagnosticUnsupported)).append('\n');
         text.append(getString(R.string.diag_freshness,
                 video == null ? -1 : now - video.timestampMs, tickDelay)).append('\n');
         text.append(getString(R.string.diag_limits));
-        performanceOverlayView.update(text.toString(), rtt, jitter,
-                fresh ? video.frameGapMaxMs : Float.NaN, input[3], submit[3]);
+        performanceOverlayView.update(text.toString(), now, new float[] {
+                rtt, jitter, fresh ? video.frameGapMaxMs : Float.NaN,
+                input[2], input[3], submit[2], submit[3],
+                fresh ? video.receiveFps : Float.NaN, fresh ? video.renderFps : Float.NaN,
+                fresh ? video.decodeMs : Float.NaN, fresh ? video.clientMs : Float.NaN,
+                fresh ? video.videoMbps : Float.NaN, fresh ? video.lossPercent : Float.NaN,
+                fresh ? video.hostMs : Float.NaN, diagnosticSendErrors, tickDelay, diagnosticContacts});
         diagnosticSendErrors = diagnosticUnsupported = 0;
     }
 
