@@ -146,6 +146,7 @@ public class PreferenceConfiguration {
     public boolean vibrateFallbackToDevice;
     public int vibrateFallbackToDeviceStrength;
     public boolean touchscreenTrackpad;
+    public boolean nativeMultiTouch;
     public MoonBridge.AudioConfiguration audioConfiguration;
     public int framePacing;
     public boolean absoluteMouseMode;
@@ -592,6 +593,7 @@ public class PreferenceConfiguration {
         config.vibrateFallbackToDevice = prefs.getBoolean(VIBRATE_FALLBACK_PREF_STRING, DEFAULT_VIBRATE_FALLBACK);
         config.vibrateFallbackToDeviceStrength = prefs.getInt(VIBRATE_FALLBACK_STRENGTH_PREF_STRING, DEFAULT_VIBRATE_FALLBACK_STRENGTH);
         config.flipFaceButtons = prefs.getBoolean(FLIP_FACE_BUTTONS_PREF_STRING, DEFAULT_FLIP_FACE_BUTTONS);
+        config.nativeMultiTouch = prefs.getBoolean("checkbox_native_multitouch", false);
         config.touchscreenTrackpad = prefs.getBoolean(TOUCHSCREEN_TRACKPAD_PREF_STRING, DEFAULT_TOUCHSCREEN_TRACKPAD);
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);

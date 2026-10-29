@@ -8,6 +8,7 @@ import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
+import com.limelight.binding.input.touch.NativeTouchState;
 import com.limelight.binding.input.touch.RelativeTouchContext;
 import com.limelight.binding.input.driver.UsbDriverService;
 import com.limelight.binding.input.evdev.EvdevListener;
@@ -96,6 +97,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     // Only 2 touches are supported
     private final TouchContext[] touchContextMap = new TouchContext[2];
+    private NativeTouchState nativeTouchState;
+    private boolean nativeTouchGesture;
     private long threeFingerDownTime = 0;
 
     private static final int REFERENCE_HORIZ_RES = 1280;
@@ -486,6 +489,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 new ComputerDetails.AddressTuple(host, port),
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
+        nativeTouchState = new NativeTouchState(
+                (type, id, x, y, pressure) -> conn.sendTouchEvent(type, id, x, y, pressure,
+                        0, 0, MoonBridge.LI_ROT_UNKNOWN));
+        // A changed video rectangle invalidates coordinates of all existing contacts.
+        streamView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (l != ol || t != ot || r != or || b != ob) {
+                cancelNativeTouches();
+            }
+        });
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         keyboardTranslator = new KeyboardTranslator();
 
@@ -576,6 +588,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
+        cancelNativeTouches();
         super.onConfigurationChanged(newConfig);
 
         // Set requested orientation for possible new screen size
@@ -741,6 +754,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus) {
+            cancelNativeTouches();
+        }
 
         // We can't guarantee the state of modifiers keys which may have
         // lifted while focus was not on us. Clear the modifier state.
@@ -1034,6 +1050,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onDestroy() {
+        cancelNativeTouches();
         super.onDestroy();
 
         if (controllerHandler != null) {
@@ -1062,6 +1079,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onPause() {
+        cancelNativeTouches();
         if (isFinishing()) {
             // Stop any further input device notifications before we lose focus (and pointer capture)
             if (controllerHandler != null) {
@@ -1148,6 +1166,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private void setInputGrabState(boolean grab) {
+        if (!grab) {
+            cancelNativeTouches();
+        }
         // Grab/ungrab the mouse cursor
         if (grab) {
             inputCaptureProvider.enableCapture();
@@ -1743,41 +1764,77 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     }
 
-    private boolean sendTouchEventForPointer(View view, MotionEvent event, byte eventType, int pointerIndex) {
-        float[] normalizedCoords = getStreamViewRelativeNormalizedXY(view, event, pointerIndex);
-        float[] normalizedContactArea = getStreamViewNormalizedContactArea(event, pointerIndex);
-        return conn.sendTouchEvent(eventType, event.getPointerId(pointerIndex),
-                normalizedCoords[0], normalizedCoords[1],
-                getPressureOrDistance(event, pointerIndex),
-                normalizedContactArea[0], normalizedContactArea[1],
-                getRotationDegrees(event, pointerIndex)) != MoonBridge.LI_ERR_UNSUPPORTED;
+    private void cancelNativeTouches() {
+        if (nativeTouchState != null) {
+            nativeTouchState.cancel();
+        }
     }
 
     private boolean trySendTouchEvent(View view, MotionEvent event) {
-        byte eventType = getLiTouchTypeFromEvent(event);
-        if (eventType < 0) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            nativeTouchState.begin();
+            nativeTouchGesture = false;
+        }
+        else if (!nativeTouchGesture) {
             return false;
         }
-
-        if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-            // Move events may impact all active pointers
-            for (int i = 0; i < event.getPointerCount(); i++) {
-                if (!sendTouchEventForPointer(view, event, eventType, i)) {
-                    return false;
-                }
-            }
+        if (action == MotionEvent.ACTION_CANCEL) {
+            cancelNativeTouches();
             return true;
         }
-        else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-            // Cancel impacts all active pointers
-            return conn.sendTouchEvent(MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL, 0,
-                    0, 0, 0, 0, 0,
-                    MoonBridge.LI_ROT_UNKNOWN) != MoonBridge.LI_ERR_UNSUPPORTED;
+        if (streamView.getWidth() <= 0 || streamView.getHeight() <= 0) {
+            cancelNativeTouches();
+            nativeTouchGesture = true;
+            return true;
         }
-        else {
-            // Up, Down, and Hover events are specific to the action index
-            return sendTouchEventForPointer(view, event, eventType, event.getActionIndex());
+
+        long present = 0;
+        for (int i = 0; i < event.getPointerCount(); i++) {
+            present |= 1L << event.getPointerId(i);
         }
+        nativeTouchState.reconcile(present);
+        int first = action == MotionEvent.ACTION_MOVE ? 0 : event.getActionIndex();
+        int end = action == MotionEvent.ACTION_MOVE ? event.getPointerCount() : first + 1;
+        for (int i = first; i < end; i++) {
+            int id = event.getPointerId(i);
+            // StreamView is measured to the displayed video aspect ratio (or stretched to fill).
+            // Parent events include the black bars; clamp them to the video's edge.
+            float x = NativeTouchState.normalize(event.getX(i),
+                    view == streamView ? 0 : streamView.getX(), streamView.getWidth());
+            float y = NativeTouchState.normalize(event.getY(i),
+                    view == streamView ? 0 : streamView.getY(), streamView.getHeight());
+            float pressure = Math.max(0, Math.min(1, event.getPressure(i)));
+            switch (action) {
+                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    boolean sent = nativeTouchState.down(id, x, y, pressure);
+                    if (action == MotionEvent.ACTION_DOWN) {
+                        // LiSendTouchEvent checks the negotiated Sunshine feature flag. Fall back
+                        // only on the first DOWN, before any native contact has been accepted.
+                        nativeTouchGesture = sent;
+                        if (!sent) {
+                            return false;
+                        }
+                    }
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    nativeTouchState.move(id, x, y, pressure);
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_POINTER_UP:
+                    nativeTouchState.up(id, x, y, pressure,
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                    (event.getFlags() & MotionEvent.FLAG_CANCELED) != 0);
+                    break;
+                default:
+                    return nativeTouchGesture;
+            }
+        }
+        if (action == MotionEvent.ACTION_UP) {
+            cancelNativeTouches();
+        }
+        return true;
     }
 
     // Returns true if the event was consumed
@@ -2000,6 +2057,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     return true;
                 }
 
+                // Native mode takes precedence over trackpad mode only for supported hosts.
+                // Consume the whole gesture before the three-finger keyboard/mouse handlers.
+                if (prefConfig.nativeMultiTouch && trySendTouchEvent(view, event)) {
+                    return true;
+                }
+
                 // If this is the parent view, we'll offset our coordinates to appear as if they
                 // are relative to the StreamView like our StreamView touch events are.
                 float xOffset, yOffset;
@@ -2031,15 +2094,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                     return true;
                 }
-
-                // TODO: Re-enable native touch when have a better solution for handling
-                // cancelled touches from Android gestures and 3 finger taps to activate
-                // the software keyboard.
-                /*if (!prefConfig.touchscreenTrackpad && trySendTouchEvent(view, event)) {
-                    // If this host supports touch events and absolute touch is enabled,
-                    // send it directly as a touch event.
-                    return true;
-                }*/
 
                 TouchContext context = getTouchContext(actionIndex);
                 if (context == null) {
@@ -2226,6 +2280,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private void stopConnection() {
+        cancelNativeTouches();
         if (connecting || connected) {
             connecting = connected = false;
             updatePipAutoEnter();
@@ -2290,6 +2345,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void connectionTerminated(final int errorCode) {
+        runOnUiThread(() -> cancelNativeTouches());
         // Perform a connection test if the failure could be due to a blocked port
         // This does network I/O, so don't do it on the main thread.
         final int portFlags = MoonBridge.getPortFlagsFromTerminationErrorCode(errorCode);

@@ -303,4 +303,6 @@
     <string name="analogscroll_none">None (both sticks move the mouse)</string>
     <string name="analogscroll_right">Right analog stick</string>
     <string name="analogscroll_left">Left analog stick</string>
+    <string name="title_native_multitouch">Native Multi-Touch</string>
+    <string name="summary_native_multitouch">Send independent finger contacts to supported Sunshine hosts. Overrides trackpad mode and disables the three-finger keyboard gesture. Unsupported hosts use the existing touch mode.</string>
 </resources>
