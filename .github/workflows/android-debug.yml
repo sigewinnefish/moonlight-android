@@ -40,6 +40,8 @@ jobs:
         run: bash tests/native-touch/run.sh
       - name: Diagnostics regression tests
         run: bash tests/diagnostics/run.sh
+      - name: Native touch transport regression tests
+        run: bash tests/touch-transport/run.sh
       - name: Build APK and run lint
         run: bash gradlew --no-daemon --max-workers=4 :app:assembleNonRootDebug :app:lintNonRootDebug
       - name: Record APK signing identity and update limitation

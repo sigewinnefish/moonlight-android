@@ -345,6 +345,10 @@
         <item>Video frame loss</item>
         <item>UI sampling lateness</item>
         <item>Contacts and submit errors</item>
+        <item>MOVE rates by stage</item>
+        <item>Touch queue wait / oldest age</item>
+        <item>Pending touch handoffs</item>
+        <item>Control transport call duration</item>
     </string-array>
     <string-array name="diag_series_names">
         <item>RTT</item>
@@ -364,6 +368,16 @@
         <item>Errors</item>
         <item>UI delay</item>
         <item>Contacts</item>
+        <item>Android</item>
+        <item>Native request</item>
+        <item>Control handoff</item>
+        <item>Wait peak</item>
+        <item>Oldest</item>
+        <item>Pending</item>
+        <item>Call peak</item>
+        <item>Cancels</item>
     </string-array>
     <string name="diag_unit_count">count</string>
+    <string name="diag_touch_path">MOVE/s Android/native request/control handoff: %1$.0f / %2$.0f / %3$.0f\nPending: %4$d | oldest: %5$.1f ms\nWait/control-call peak: %6$.1f / %7$.1f ms\nControl/request errors: %8$d / %9$d | trace overflow: %10$d | cancels: %11$d</string>
+    <string name="diag_touch_trace_unknown">Touch handoff trace unavailable/overflow: queue diagnosis is inconclusive.</string>
 </resources>

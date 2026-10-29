@@ -99,7 +99,8 @@ public final class PerformanceOverlayView extends LinearLayout {
     private void loadSettings() {
         historySeconds = prefs.getInt("history", 60);
         refreshMs = prefs.getInt("refresh_v2", 250);
-        chartMask = prefs.getInt("charts", (1 << DiagnosticCharts.GROUPS.length) - 1);
+        chartMask = prefs.contains("touch_charts_v1") ? prefs.getInt("charts", (1 << DiagnosticCharts.GROUPS.length)-1)
+                : prefs.getInt("charts", 1023) | (15 << 10);
         opacity = Math.max(30, Math.min(100, prefs.getInt("opacity", 80)));
         compact = prefs.getBoolean("compact", true);
         hudText.setMaxLines(compact ? 4 : 10);
@@ -240,7 +241,7 @@ public final class PerformanceOverlayView extends LinearLayout {
                     for (int i = 0; i < enabled.length; i++) if (enabled[i].isChecked()) mask |= 1 << i;
                     prefs.edit().putInt("history", HISTORY_SECONDS[duration.getSelectedItemPosition()])
                             .putInt("refresh_v2", REFRESH_MS[refresh.getSelectedItemPosition()])
-                            .putInt("charts", mask).putInt("opacity", transparency.getProgress() + 30)
+                            .putInt("charts", mask).putBoolean("touch_charts_v1", true).putInt("opacity", transparency.getProgress() + 30)
                             .putBoolean("compact", brief.isChecked()).apply();
                     applySettings();
                 }).create();
@@ -297,7 +298,7 @@ public final class PerformanceOverlayView extends LinearLayout {
             float scale = DiagnosticCharts.upperBound(DiagnosticCharts.maximum(history, series, start));
             float left = dp(small ? 34 : 48), right = getWidth() - dp(12);
             float top = dp(small ? 26 : 62), bottom = getHeight() - dp(small ? 13 : 26);
-            String unit = group == 4 ? "FPS" : group == 6 ? "Mbps" : group == 7 ? "%" : group == 9 ? getContext().getString(R.string.diag_unit_count) : "ms";
+            String unit = group == 4 ? "FPS" : group == 6 ? "Mbps" : group == 7 ? "%" : (group == 9 || group == 12) ? getContext().getString(R.string.diag_unit_count) : group == 10 ? "/s" : "ms";
             paint.setColor(0xff1c2733);
             canvas.drawRoundRect(dp(1), dp(3), getWidth()-dp(1), getHeight()-dp(3), dp(7), dp(7), paint);
             paint.setTextSize(dp(small ? 9 : 12)); paint.setColor(0xffe8eef5);

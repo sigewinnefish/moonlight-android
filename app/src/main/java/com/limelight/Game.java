@@ -159,6 +159,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private int diagnosticSendErrors;
     private int diagnosticUnsupported;
     private int diagnosticContacts;
+    private int diagnosticMoveEvents;
+    private int diagnosticTouchCancels;
     private long diagnosticLastTickMs;
     private long diagnosticExpectedTickMs;
     private volatile String diagnosticNetworkText;
@@ -1793,6 +1795,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (!prefConfig.enablePerfOverlay) {
             return conn.sendTouchEvent(type, id, x, y, pressure, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
         }
+        if (type == MoonBridge.LI_TOUCH_EVENT_CANCEL || type == MoonBridge.LI_TOUCH_EVENT_CANCEL_ALL) {
+            diagnosticTouchCancels++;
+        }
         long start = System.nanoTime();
         int result = conn.sendTouchEvent(type, id, x, y, pressure, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
         diagnosticSubmit.record((System.nanoTime() - start) / 1000000f);
@@ -2096,6 +2101,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 }
 
                 if (prefConfig.enablePerfOverlay) {
+                    if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                        diagnosticMoveEvents += event.getPointerCount();
+                    }
                     diagnosticInputAge.record(Math.max(0, android.os.SystemClock.uptimeMillis() - event.getEventTime()));
                     switch (event.getActionMasked()) {
                         case MotionEvent.ACTION_UP:
@@ -2339,6 +2347,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private void stopConnection() {
+        MoonBridge.setTouchDiagnosticsEnabled(false);
         stopDiagnosticNetworkPoller();
         performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
@@ -2531,6 +2540,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 connected = true;
                 connecting = false;
                 if (prefConfig.enablePerfOverlay) {
+                    MoonBridge.setTouchDiagnosticsEnabled(true);
                     // Wi-Fi service calls can block: never poll them on the input/UI thread.
                     diagnosticNetworkPoller = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
                     diagnosticNetworkPoller.scheduleWithFixedDelay(() -> {
@@ -2846,6 +2856,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 diagnosticSendErrors, diagnosticUnsupported)).append('\n');
         text.append(getString(R.string.diag_freshness,
                 video == null ? -1 : now - video.timestampMs, tickDelay)).append('\n');
+        long[] touch = MoonBridge.getTouchDiagnostics();
+        if (touch == null) touch = new long[12];
+        boolean traceValid = touch[10] == 0 && touch[11] == 0;
+        float queueWait = traceValid ? touch[4] / 1000f : Float.NaN;
+        float queueAge = traceValid ? touch[6] / 1000f : Float.NaN;
+        if (!traceValid) text.append(getString(R.string.diag_touch_trace_unknown)).append('\n');
+        text.append(getString(R.string.diag_touch_path,
+                diagnosticMoveEvents * 1000f / interval, touch[1] * 1000f / interval,
+                touch[3] * 1000f / interval, touch[5], queueAge,
+                queueWait, touch[7] / 1000f, touch[8], touch[9], touch[10], diagnosticTouchCancels)).append('\n');
         text.append(getString(R.string.diag_limits));
         performanceOverlayView.update(text.toString(), now, new float[] {
                 rtt, jitter, fresh ? video.frameGapMaxMs : Float.NaN,
@@ -2853,7 +2873,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 fresh ? video.receiveFps : Float.NaN, fresh ? video.renderFps : Float.NaN,
                 fresh ? video.decodeMs : Float.NaN, fresh ? video.clientMs : Float.NaN,
                 fresh ? video.videoMbps : Float.NaN, fresh ? video.lossPercent : Float.NaN,
-                fresh ? video.hostMs : Float.NaN, diagnosticSendErrors, tickDelay, diagnosticContacts});
+                fresh ? video.hostMs : Float.NaN, diagnosticSendErrors, tickDelay, diagnosticContacts,
+                diagnosticMoveEvents * 1000f / interval, touch[1] * 1000f / interval,
+                touch[3] * 1000f / interval, queueWait, queueAge,
+                traceValid ? touch[5] : Float.NaN, touch[7] / 1000f, diagnosticTouchCancels});
+        diagnosticMoveEvents = diagnosticTouchCancels = 0;
         diagnosticSendErrors = diagnosticUnsupported = 0;
     }
 

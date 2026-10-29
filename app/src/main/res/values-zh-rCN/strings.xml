@@ -326,6 +326,10 @@
         <item>视频丢帧比例</item>
         <item>UI采样迟到</item>
         <item>触点数与提交失败</item>
+        <item>MOVE分阶段速率</item>
+        <item>触控队列等待与最老年龄</item>
+        <item>待移交触控数量</item>
+        <item>控制传输调用耗时</item>
     </string-array>
     <string-array name="diag_series_names">
         <item>RTT</item>
@@ -345,6 +349,16 @@
         <item>失败</item>
         <item>UI迟到</item>
         <item>触点</item>
+        <item>Android</item>
+        <item>原生请求</item>
+        <item>控制移交</item>
+        <item>等待峰值</item>
+        <item>最老等待</item>
+        <item>待移交</item>
+        <item>调用峰值</item>
+        <item>取消</item>
     </string-array>
     <string name="diag_unit_count">个/次</string>
+    <string name="diag_touch_path">MOVE/秒 Android/原生请求/控制移交：%1$.0f / %2$.0f / %3$.0f\n待移交：%4$d | 最老等待：%5$.1f ms\n等待/控制调用峰值：%6$.1f / %7$.1f ms\n控制/请求失败：%8$d / %9$d | 跟踪溢出：%10$d | 触控取消：%11$d</string>
+    <string name="diag_touch_trace_unknown">触控跟踪不可用或溢出：队列数据无法用于判定卡顿。</string>
 </resources>

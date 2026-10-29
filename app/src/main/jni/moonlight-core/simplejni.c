@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "minisdl.h"
+#include "touch_diagnostics.h"
 #include "controller_type.h"
 #include "controller_list.h"
 
@@ -48,8 +49,11 @@ Java_com_limelight_nvstream_jni_MoonBridge_sendTouchEvent(JNIEnv *env, jclass cl
                                                           jfloat x, jfloat y, jfloat pressureOrDistance,
                                                           jfloat contactAreaMajor, jfloat contactAreaMinor,
                                                           jshort rotation) {
-    return LiSendTouchEvent(eventType, pointerId, x, y, pressureOrDistance,
-                            contactAreaMajor, contactAreaMinor, rotation);
+    uint64_t token = TouchDiagBegin(eventType, pointerId);
+    int result = LiSendTouchEvent(eventType, pointerId, x, y, pressureOrDistance,
+                                 contactAreaMajor, contactAreaMinor, rotation);
+    TouchDiagComplete(token, result);
+    return result;
 }
 
 JNIEXPORT jint JNICALL
@@ -270,4 +274,19 @@ JNIEXPORT jboolean JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_guessControllerHasShareButton(JNIEnv *env, jclass clazz, jint vendorId, jint productId) {
     // Xbox Series X controllers have a share button
     return SDL_IsJoystickXboxSeriesX(vendorId, productId);
+}
+JNIEXPORT void JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_setTouchDiagnosticsEnabled(JNIEnv *env, jclass clazz, jboolean enabled) {
+    TouchDiagEnable(enabled);
+}
+
+JNIEXPORT jlongArray JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_getTouchDiagnostics(JNIEnv *env, jclass clazz) {
+    uint64_t values[12];
+    TouchDiagSnapshot(values);
+    jlong copy[12];
+    for (int i = 0; i < 12; i++) copy[i] = (jlong)values[i];
+    jlongArray result = (*env)->NewLongArray(env, 12);
+    if (result != NULL) (*env)->SetLongArrayRegion(env, result, 0, 12, copy);
+    return result;
 }
