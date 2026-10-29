@@ -275,6 +275,14 @@ public final class PerformanceOverlayView extends LinearLayout {
         return active;
     }
 
+    public void closePanelsForBackground() {
+        cancelPassThrough();
+        if (optionPicker != null) optionPicker.dismiss();
+        if (settings != null) settings.dismiss();
+        if (dashboard != null) dashboard.dismiss();
+        hideHudWindows();
+    }
+
     public int getRefreshMs() { return refreshMs; }
 
     public void recordFrameTimings(FrameTimingWindow.Sample sample, long nowMs, long nowNs) {

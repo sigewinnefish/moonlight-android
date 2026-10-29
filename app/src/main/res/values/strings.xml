@@ -475,4 +475,12 @@
     <string name="diag_frame_summary">Presentation P95/P99/peak: %1$s / %2$s / %3$s ms | budget: %4$s ms</string>
     <string name="diag_frame_unavailable">Presentation callback unavailable: only submission/pacing timings can be measured.</string>
     <string name="diag_frame_limits">Frame Time uses MediaCodec presentation timestamps, not GPU execution or physical scanout. Slow: &gt;1.5× budget; severe: &gt;3× and &gt;50 ms. Excess share covers completed slow intervals. Missing/batched callbacks affect coverage; pending callbacks are not confirmed dropped frames. Percentiles cover the sampling interval (up to the latest 2048 events).</string>
+    <string name="title_background_streaming">Continue streaming in background</string>
+    <string name="summary_background_streaming">Keep the connection, audio and diagnostics running when switching apps or locking the screen. Uses a persistent playback notification and more battery. Requires Android 8.0+; disabling restores disconnect-on-leave.</string>
+    <string name="background_stream_channel">Active stream</string>
+    <string name="background_stream_title">Moonlight stream is running</string>
+    <string name="background_stream_notification">Connection and audio continue. Tap to return.</string>
+    <string name="background_stream_disconnect">Disconnect</string>
+    <string name="background_stream_unavailable">Background streaming is unavailable on this device. The stream will disconnect when hidden.</string>
+    <string name="diag_background_stream">Background receive/decode continues; frames are discarded without display. Screen presentation timings are unavailable.</string>
 </resources>

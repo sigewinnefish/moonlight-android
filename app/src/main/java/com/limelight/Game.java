@@ -132,6 +132,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean autoEnterPip = false;
     private boolean surfaceCreated = false;
     private boolean attemptedConnection = false;
+    private boolean backgroundStreamingReady;
+    private boolean backgroundServiceRequested;
+    private boolean streamUiStopped;
+    private boolean backgroundGrabbedInput;
+    private boolean nativeStopIssued;
     private int suppressPipRefCount = 0;
     private String pcName;
     private String appName;
@@ -700,7 +705,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private void updatePipAutoEnter() {
-        if (!prefConfig.enablePip) {
+        if (!prefConfig.enablePip || isFinishing() || isDestroyed()) {
             return;
         }
 
@@ -793,6 +798,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // With Android native pointer capture, capture is lost when focus is lost,
         // so it must be requested again when focus is regained.
+        if (hasFocus && backgroundGrabbedInput && connected && !streamUiStopped) {
+            backgroundGrabbedInput = false; setInputGrabState(true);
+        }
         inputCaptureProvider.onWindowFocusChanged(hasFocus);
     }
 
@@ -1079,6 +1087,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onDestroy() {
+        if (connecting || connected) stopConnection();
+        StreamPlaybackService.stop(this);
         stopDiagnosticNetworkPoller();
         if (performanceOverlayView != null) performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
@@ -1108,6 +1118,39 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         inputCaptureProvider.destroy();
     }
 
+    private boolean keepStreamInBackground() {
+        return prefConfig.backgroundStreaming && backgroundStreamingReady && backgroundServiceRequested &&
+                connected && !isFinishing();
+    }
+
+    public void stopBackgroundStream() {
+        stopConnection(); finish();
+    }
+
+    public void backgroundStreamUnavailable() {
+        backgroundServiceRequested = false;
+        Toast.makeText(this, R.string.background_stream_unavailable, Toast.LENGTH_LONG).show();
+        if (streamUiStopped || !surfaceCreated) stopBackgroundStream();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart(); streamUiStopped = false;
+        if (connected) {
+            decoderRenderer.notifyVideoForeground();
+            if (surfaceCreated && streamView.getHolder().getSurface().isValid() && decoderRenderer.isBackgroundOutput()) {
+                if (!decoderRenderer.useForegroundSurface(streamView.getHolder().getSurface())) stopBackgroundStream();
+            }
+            controllerHandler.enableSensors();
+            if (virtualController != null && !isHidingOverlays) virtualController.show();
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (backgroundGrabbedInput && hasWindowFocus()) {
+                backgroundGrabbedInput = false; setInputGrabState(true);
+            }
+            hideSystemUi(50);
+        }
+    }
+
     @Override
     protected void onPause() {
         if (performanceOverlayView != null) performanceOverlayView.cancelPassThrough();
@@ -1134,6 +1177,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         if (virtualController != null) {
             virtualController.hide();
+        }
+
+        if (keepStreamInBackground() && decoderRenderer.useBackgroundSurface()) {
+            streamUiStopped = true;
+            backgroundGrabbedInput = grabbedInput;
+            setInputGrabState(false);
+            if (touchContextMap != null) {
+                for (TouchContext touch : touchContextMap) if (touch != null) touch.cancelTouch();
+            }
+            if (virtualController != null) virtualController.cancelInput();
+            conn.releaseKeyboardAndMouse();
+            controllerHandler.disableSensors();
+            decoderRenderer.notifyVideoBackground();
+            performanceOverlayView.closePanelsForBackground();
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            return;
         }
 
         if (conn != null) {
@@ -2359,11 +2418,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private void stopConnection() {
+        backgroundServiceRequested = false;
+        StreamPlaybackService.stop(this);
         MoonBridge.setTouchDiagnosticsEnabled(false);
         stopDiagnosticNetworkPoller();
         performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
-        if (connecting || connected) {
+        if ((connecting || connected) && !nativeStopIssued) {
+            nativeStopIssued = true;
             connecting = connected = false;
             updatePipAutoEnter();
 
@@ -2549,8 +2611,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     spinner = null;
                 }
 
+                if (nativeStopIssued) return;
+                if (isFinishing() || isDestroyed()) {
+                    connected = true; stopConnection(); return;
+                }
                 connected = true;
                 connecting = false;
+                if (prefConfig.backgroundStreaming) {
+                    backgroundStreamingReady = decoderRenderer.prepareBackgroundStreaming();
+                    if (backgroundStreamingReady) backgroundServiceRequested = StreamPlaybackService.start(Game.this);
+                    if (!backgroundStreamingReady || !backgroundServiceRequested) backgroundStreamUnavailable();
+                }
                 if (prefConfig.enablePerfOverlay) {
                     MoonBridge.setTouchDiagnosticsEnabled(true);
                     // Wi-Fi service calls can block: never poll them on the input/UI thread.
@@ -2573,7 +2644,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 h.postDelayed(new Runnable() {
                     @Override
                     public void run() {
-                        setInputGrabState(true);
+                        if (connected && !streamUiStopped && hasWindowFocus()) setInputGrabState(true);
                     }
                 }, 500);
 
@@ -2667,6 +2738,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
                     decoderRenderer, Game.this);
         }
+        else if (connected && decoderRenderer.isBackgroundOutput()) {
+            if (!decoderRenderer.useForegroundSurface(holder.getSurface())) stopBackgroundStream();
+        }
     }
 
     @Override
@@ -2716,7 +2790,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             throw new IllegalStateException("Surface destroyed before creation!");
         }
 
+        surfaceCreated = false;
         if (attemptedConnection) {
+            if (keepStreamInBackground() && decoderRenderer.useBackgroundSurface()) return;
             // Let the decoder know immediately that the surface is gone
             decoderRenderer.prepareForStop();
 
@@ -2905,12 +2981,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 DiagnosticCharts.formatValue(ft[FrameTimingWindow.PRESENT_PEAK], java.util.Locale.getDefault()),
                 DiagnosticCharts.formatValue(ft[FrameTimingWindow.BUDGET], java.util.Locale.getDefault()))).append('\n');
         if (!decoderRenderer.hasFrameTimingCallbacks()) text.append(getString(R.string.diag_frame_unavailable)).append('\n');
+        if (decoderRenderer.isBackgroundOutput()) text.append(getString(R.string.diag_background_stream)).append('\n');
         text.append(getString(R.string.diag_frame_limits)).append('\n');
         text.append(getString(R.string.diag_limits));
         performanceOverlayView.update(text.toString(), now, new float[] {
                 rtt, jitter, fresh ? video.frameGapMaxMs : Float.NaN,
                 input[2], input[3], submit[2], submit[3],
-                fresh ? video.receiveFps : Float.NaN, fresh ? video.renderFps : Float.NaN,
+                fresh ? video.receiveFps : Float.NaN, fresh && !decoderRenderer.isBackgroundOutput() ? video.renderFps : Float.NaN,
                 fresh ? video.decodeMs : Float.NaN, fresh ? video.clientMs : Float.NaN,
                 fresh ? video.videoMbps : Float.NaN, fresh ? video.lossPercent : Float.NaN,
                 fresh ? video.hostMs : Float.NaN, diagnosticSendErrors, tickDelay, diagnosticContacts,

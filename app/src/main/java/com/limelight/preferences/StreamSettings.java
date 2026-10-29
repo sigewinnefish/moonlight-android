@@ -317,6 +317,10 @@ public class StreamSettings extends Activity {
                 category.removePreference(findPreference("checkbox_usb_driver"));
             }
 
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                findPreference("checkbox_background_streaming").setEnabled(false);
+            }
+
             // Remove PiP mode on devices pre-Oreo, where the feature is not available (some low RAM devices),
             // and on Fire OS where it violates the Amazon App Store guidelines for some reason.
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||

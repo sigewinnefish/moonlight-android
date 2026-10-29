@@ -456,4 +456,12 @@
     <string name="diag_frame_summary">呈现间隔P95/P99/峰值：%1$s / %2$s / %3$s ms | 目标预算：%4$s ms</string>
     <string name="diag_frame_unavailable">呈现回调不可用：只能统计显示提交与帧节奏等待。</string>
     <string name="diag_frame_limits">Frame Time来自MediaCodec呈现时间戳，非GPU执行时间或物理屏幕扫描。慢帧：&gt;1.5倍预算；严重：&gt;3倍且&gt;50ms。超预算占比仅统计已完成慢间隔。回调缺失/批量投递影响覆盖率，待回报不代表确认丢帧。分位数统计当前采样窗口（至多最近2048次）。</string>
+    <string name="title_background_streaming">后台继续串流</string>
+    <string name="summary_background_streaming">切换应用或锁屏后继续连接、声音和诊断统计。会显示常驻播放通知，并增加耗电。需要Android 8.0及以上；关闭后恢复离开即断开的行为。</string>
+    <string name="background_stream_channel">正在串流</string>
+    <string name="background_stream_title">Moonlight串流正在运行</string>
+    <string name="background_stream_notification">连接与声音继续，点按返回串流。</string>
+    <string name="background_stream_disconnect">断开连接</string>
+    <string name="background_stream_unavailable">此设备无法开启后台串流，应用隐藏后将断开连接。</string>
+    <string name="diag_background_stream">后台接收与解码继续，视频帧不提交显示；屏幕呈现时序不可用。</string>
 </resources>
