@@ -18,6 +18,9 @@ import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
+import com.limelight.binding.video.PerfSample;
+import com.limelight.diagnostics.LatencyWindow;
+import com.limelight.ui.PerformanceOverlayView;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -148,7 +151,23 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private boolean isHidingOverlays;
     private TextView notificationOverlayView;
     private int requestedNotificationOverlayVisibility = View.GONE;
-    private TextView performanceOverlayView;
+    private PerformanceOverlayView performanceOverlayView;
+    private volatile PerfSample diagnosticVideoSample;
+    // Motion events and diagnostics ticks both run on the UI thread.
+    private final LatencyWindow diagnosticInputAge = new LatencyWindow();
+    private final LatencyWindow diagnosticSubmit = new LatencyWindow();
+    private int diagnosticSendErrors;
+    private int diagnosticUnsupported;
+    private int diagnosticContacts;
+    private long diagnosticLastTickMs;
+    private final Runnable diagnosticTick = new Runnable() {
+        @Override
+        public void run() {
+            if (!connected || !prefConfig.enablePerfOverlay) return;
+            updateDiagnostics();
+            performanceOverlayView.postDelayed(this, 1000);
+        }
+    };
 
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
@@ -490,8 +509,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         nativeTouchState = new NativeTouchState(
-                (type, id, x, y, pressure) -> conn.sendTouchEvent(type, id, x, y, pressure,
-                        0, 0, MoonBridge.LI_ROT_UNKNOWN));
+                (type, id, x, y, pressure) -> sendDiagnosticTouch(type, id, x, y, pressure));
         // A changed video rectangle invalidates coordinates of all existing contacts.
         streamView.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
             if (l != ol || t != ot || r != or || b != ob) {
@@ -1050,6 +1068,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     protected void onDestroy() {
+        if (performanceOverlayView != null) performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
         super.onDestroy();
 
@@ -1764,7 +1783,20 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     }
 
+    private int sendDiagnosticTouch(byte type, int id, float x, float y, float pressure) {
+        if (!prefConfig.enablePerfOverlay) {
+            return conn.sendTouchEvent(type, id, x, y, pressure, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
+        }
+        long start = System.nanoTime();
+        int result = conn.sendTouchEvent(type, id, x, y, pressure, 0, 0, MoonBridge.LI_ROT_UNKNOWN);
+        diagnosticSubmit.record((System.nanoTime() - start) / 1000000f);
+        if (result == MoonBridge.LI_ERR_UNSUPPORTED) diagnosticUnsupported++;
+        else if (result != 0) diagnosticSendErrors++;
+        return result;
+    }
+
     private void cancelNativeTouches() {
+        diagnosticContacts = 0;
         if (nativeTouchState != null) {
             nativeTouchState.cancel();
         }
@@ -2057,6 +2089,20 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                     return true;
                 }
 
+                if (prefConfig.enablePerfOverlay) {
+                    diagnosticInputAge.record(Math.max(0, android.os.SystemClock.uptimeMillis() - event.getEventTime()));
+                    switch (event.getActionMasked()) {
+                        case MotionEvent.ACTION_UP:
+                        case MotionEvent.ACTION_CANCEL:
+                            diagnosticContacts = 0;
+                            break;
+                        case MotionEvent.ACTION_POINTER_UP:
+                            diagnosticContacts = event.getPointerCount() - 1;
+                            break;
+                        default:
+                            diagnosticContacts = event.getPointerCount();
+                    }
+                }
                 // Native mode takes precedence over trackpad mode only for supported hosts.
                 // Consume the whole gesture before the three-finger keyboard/mouse handlers.
                 if (prefConfig.nativeMultiTouch && trySendTouchEvent(view, event)) {
@@ -2280,6 +2326,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     private void stopConnection() {
+        performanceOverlayView.removeCallbacks(diagnosticTick);
         cancelNativeTouches();
         if (connecting || connected) {
             connecting = connected = false;
@@ -2469,6 +2516,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
                 connected = true;
                 connecting = false;
+                if (prefConfig.enablePerfOverlay) {
+                    diagnosticLastTickMs = android.os.SystemClock.uptimeMillis();
+                    performanceOverlayView.post(diagnosticTick);
+                }
                 updatePipAutoEnter();
 
                 // Hide the mouse cursor now after a short delay.
@@ -2717,13 +2768,62 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     @Override
-    public void onPerfUpdate(final String text) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                performanceOverlayView.setText(text);
+    public void onPerfUpdate(final PerfSample sample) {
+        diagnosticVideoSample = sample;
+    }
+
+    @SuppressWarnings("deprecation")
+    private String diagnosticNetwork() {
+        try {
+            ConnectivityManager manager = (ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
+            android.net.NetworkInfo network = manager.getActiveNetworkInfo();
+            if (network == null || !network.isConnected()) return getString(R.string.diag_network_unknown);
+            String name = network.getTypeName();
+            if (network.getType() == ConnectivityManager.TYPE_WIFI) {
+                android.net.wifi.WifiInfo wifi = ((WifiManager)getApplicationContext()
+                        .getSystemService(WIFI_SERVICE)).getConnectionInfo();
+                if (wifi != null && wifi.getRssi() > -127 && wifi.getLinkSpeed() > 0) {
+                    name += String.format(java.util.Locale.getDefault(), "  %d dBm / %d MHz / %d Mbps",
+                            wifi.getRssi(), wifi.getFrequency(), wifi.getLinkSpeed());
+                }
             }
-        });
+            return name;
+        }
+        catch (SecurityException e) {
+            return getString(R.string.diag_network_unknown);
+        }
+    }
+
+    private void updateDiagnostics() {
+        long now = android.os.SystemClock.uptimeMillis();
+        long tickDelay = Math.max(0, now - diagnosticLastTickMs - 1000);
+        diagnosticLastTickMs = now;
+        float[] input = diagnosticInputAge.drain();
+        float[] submit = diagnosticSubmit.drain();
+        PerfSample video = diagnosticVideoSample;
+        boolean fresh = video != null && now - video.timestampMs < 2500;
+        long rttInfo = MoonBridge.getEstimatedRttInfo();
+        float rtt = rttInfo == -1 ? Float.NaN : (int)(rttInfo >> 32);
+        float jitter = rttInfo == -1 ? Float.NaN : (int)rttInfo;
+        StringBuilder text = new StringBuilder(1024);
+        text.append(getString(R.string.diag_header)).append('\n');
+        text.append(diagnosticNetwork()).append('\n');
+        if (!fresh) text.append(getString(R.string.diag_stale)).append('\n');
+        if (video != null) text.append(video.text).append('\n');
+        else text.append(getString(R.string.diag_waiting)).append('\n');
+        text.append(getString(R.string.diag_video_extra,
+                fresh ? video.videoMbps : Float.NaN, fresh ? video.frameGapMaxMs : Float.NaN,
+                fresh ? video.clientMs : Float.NaN)).append('\n');
+        text.append(getString(R.string.diag_input, (int)input[0], diagnosticContacts,
+                input[2], input[3])).append('\n');
+        text.append(getString(R.string.diag_submit, (int)submit[0], submit[2], submit[3],
+                diagnosticSendErrors, diagnosticUnsupported)).append('\n');
+        text.append(getString(R.string.diag_freshness,
+                video == null ? -1 : now - video.timestampMs, tickDelay)).append('\n');
+        text.append(getString(R.string.diag_limits));
+        performanceOverlayView.update(text.toString(), rtt, jitter,
+                fresh ? video.frameGapMaxMs : Float.NaN, input[3], submit[3]);
+        diagnosticSendErrors = diagnosticUnsupported = 0;
     }
 
     @Override

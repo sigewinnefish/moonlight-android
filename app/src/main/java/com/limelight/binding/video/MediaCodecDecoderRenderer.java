@@ -75,6 +75,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private String glRenderer;
     private boolean foreground = true;
     private PerfOverlayListener perfListener;
+    private long diagnosticLastFrameMs;
+    private long diagnosticBytes;
+    private long diagnosticGapMaxMs;
 
     private static final int CR_MAX_TRIES = 10;
     private static final int CR_RECOVERY_TYPE_NONE = 0;
@@ -1351,6 +1354,16 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             return MoonBridge.DR_OK;
         }
 
+        if (prefs.enablePerfOverlay) {
+            long now = receiveTimeUs / 1000;
+            diagnosticBytes += decodeUnitLength;
+            if (frameNumber != lastFrameNumber) {
+                if (diagnosticLastFrameMs != 0) {
+                    diagnosticGapMaxMs = Math.max(diagnosticGapMaxMs, now - diagnosticLastFrameMs);
+                }
+                diagnosticLastFrameMs = now;
+            }
+        }
         if (lastFrameNumber == 0) {
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
         } else if (frameNumber != lastFrameNumber && frameNumber != lastFrameNumber + 1) {
@@ -1389,7 +1402,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     decoder = "(unknown)";
                 }
 
-                float decodeTimeMs = (float)lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
+                float decodeTimeMs = lastTwo.totalFramesReceived == 0 ? Float.NaN : (float)lastTwo.decoderTimeMs / lastTwo.totalFramesReceived;
                 long rttInfo = MoonBridge.getEstimatedRttInfo();
                 StringBuilder sb = new StringBuilder();
                 sb.append(context.getString(R.string.perf_overlay_streamdetails, initialWidth + "x" + initialHeight, fps.totalFps)).append('\n');
@@ -1407,7 +1420,14 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             (float)lastTwo.totalHostProcessingLatency / 10 / lastTwo.framesWithHostProcessingLatency)).append('\n');
                 }
                 sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs));
-                perfListener.onPerfUpdate(sb.toString());
+                long sampleTime = SystemClock.uptimeMillis();
+                float seconds = Math.max(1, sampleTime - activeWindowVideoStats.measurementStartTimestamp) / 1000f;
+                perfListener.onPerfUpdate(new PerfSample(sb.toString(), sampleTime,
+                        diagnosticGapMaxMs, diagnosticBytes * 8f / seconds / 1000000f,
+                        lastTwo.totalFramesReceived == 0 ? Float.NaN :
+                                (float)lastTwo.totalTimeMs / lastTwo.totalFramesReceived));
+                diagnosticBytes = 0;
+                diagnosticGapMaxMs = 0;
             }
 
             globalVideoStats.add(activeWindowVideoStats);

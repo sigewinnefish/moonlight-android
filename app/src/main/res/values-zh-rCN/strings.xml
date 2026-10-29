@@ -286,4 +286,15 @@
     <string name="analogscroll_none">默认 (两个摇杆都控制鼠标)</string>
     <string name="title_native_multitouch">原生多点触控</string>
     <string name="summary_native_multitouch">向支持的 Sunshine 主机发送独立触点。优先于触控板模式，禁用三指键盘手势。不支持的主机使用原有触控模式。</string>
+    <string name="diag_header">串流诊断 · 1秒采样 / 60秒趋势</string>
+    <string name="diag_network_unknown">网络：未知 / 权限受限</string>
+    <string name="diag_waiting">等待视频统计…</string>
+    <string name="diag_video_extra">视频载荷：%1$.1f Mbps | 帧到达间隔峰值：%2$.1f ms\n客户端流水线均值：%3$.1f ms（非输入延迟）</string>
+    <string name="diag_input">触摸事件/秒：%1$d | 当前触点：%2$d\n事件等待 P95/峰值：%3$.1f / %4$.1f ms</string>
+    <string name="diag_submit">原生提交/秒：%1$d | P95/峰值：%2$.2f / %3$.2f ms\n提交失败：%4$d | 不支持：%5$d（本周期）</string>
+    <string name="diag_freshness">视频统计距今：%1$d ms | UI采样迟到：%2$d ms</string>
+    <string name="diag_limits">NaN＝无样本；-1＝等待。提交≠主机确认。\nWi-Fi链路速率≠吞吐量；RTT≠触控到画面延迟。</string>
+    <string name="diag_chart_network">60秒 · 蓝 RTT / 黄 波动 / 红 帧间隔</string>
+    <string name="diag_chart_input">60秒 · 绿 事件等待峰值 / 紫 提交峰值</string>
+    <string name="diag_stale">视频统计已过期 / 等待更新</string>
 </resources>

@@ -24,12 +24,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Touch state regression tests
         run: bash tests/native-touch/run.sh
+      - name: Diagnostics regression tests
+        run: bash tests/diagnostics/run.sh
       - name: Build APK and run lint
         run: bash gradlew --no-daemon --max-workers=4 :app:assembleNonRootDebug :app:lintNonRootDebug
       - name: Upload Debug APK and lint report
         uses: actions/upload-artifact@v4
         with:
-          name: moonlight-native-multitouch-debug
+          name: moonlight-stream-diagnostics-debug
           path: |
             app/build/outputs/apk/nonRoot/debug/*.apk
             app/build/reports/lint-results-nonRootDebug.*
